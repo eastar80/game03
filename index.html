@@ -69,14 +69,12 @@ const LANE_X0 = 58, LANE_X1 = 302, LANE_CX = 180;
 /* 도형은 언제나 화면에 하나뿐이고 늘 맨 위에서 시작한다.
    그래서 y 는 곧 "네가 얼마나 오래 망설였나"다. 구역 경계는 위치가 아니라 시간으로 잡았다. */
 const Z3 = 300, Z2 = 450;         // y<300 ×3 / y<450 ×2 / 그 외 ×1
-/* 조건 전환. 요청서의 1.2초 공백은 "화면에 도형이 여럿 남은 채로 전환하면 판정이
-   애매해진다"를 막으려던 것이다. 이제 도형은 하나뿐이고 도형 사이는 이미 비어 있으므로
-   그 공백은 존재 이유가 없다. 박자를 조금 늘려 배너를 끼워 넣는 것으로 끝난다.
-   대신 전환을 자주 한다 — 난이도를 "속도(지각)"가 아니라 "전환(억제)"에서 가져온다. */
-const SWITCH_BLANK  = 260;        // 조건 전환 때 멈추는 시간(ms) — 배너는 이보다 오래 남는다
-const SWITCH_BANNER = 170;        // 이 시점에 HUD 조건이 새 색으로 바뀐다
-const BANNER_LIFE   = 760;        // 배너가 화면에 남아 사라지는 시간(ms). 다음 도형이 떨어지는
-                                  // 동안 옅어지므로, 전환이 잦아도 죽은 시간이 되지 않는다
+/* 기준은 **매 도형마다** 바뀐다. 전환을 알리는 정지도, 배너도 없다 —
+   HUD 가 언제나 「지금 ▸ 다음」을 함께 보여주기 때문이다.
+   덕분에 전환 비용이 0 이 되어, 매번 바꿔도 죽은 시간이 늘지 않는다.
+   (요청서 2.4 의 1.2초 공백 + 배너는 "도형이 여럿 남은 채 전환하면 애매해진다"를
+    막으려던 장치였고, 도형이 하나뿐인 지금은 막을 것이 없다. README 7장) */
+const COND_ROLL = 190;            // HUD 에서 「다음」이 「지금」자리로 미끄러지는 시간(ms)
 const WRONG_FREEZE  = 250;        // WRONG 정지(ms)
 const MISS_FREEZE   = 380;        // 마지막 목숨을 MISS 로 잃었을 때만 잠깐 멈춤
 /* 목숨 5개. 요청서는 ♥♥♥(3)이지만 코어 루프가 2배 빨라지면서 한 판이 절반으로
@@ -100,6 +98,11 @@ const RESTART_LOCK = 600;         // 게임 오버 후 재시작 탭을 받기�
      레벨 0 — ×3 은 344ms 안, ×2 는 ~552ms, ×1 은 ~761ms, 그 뒤 바닥 = MISS
      레벨 5 — ×3 은 295ms 안, 바닥까지 652ms.
 
+   ★★ switchEvery: 1 — 기준은 **매 도형마다** 바뀐다. 전환 정지도 배너도 없고,
+     HUD 가 「지금 ▸ 다음」을 상시로 보여준다. 그래서 전환 비용이 0 이다.
+     beat 가 레벨과 함께 줄어드는 것(8 → 3 프레임)이 여기서 진짜 압박이 된다 —
+     다음 기준을 미리 읽을 틈이 그만큼 줄어든다.
+
    ★★ speed 를 거의 눕힌 것이 이 표의 핵심이다.
      사람의 색 인식은 대략 300ms 다. ×3 창이 그보다 **짧아지면 고민이 도박이 된다** —
      정보 없이 찍는 것이라 원칙 1(실력이 결정한다)에 어긋난다.
@@ -110,14 +113,13 @@ const RESTART_LOCK = 600;         // 게임 오버 후 재시작 탭을 받기�
      그게 이 게임이 시험한다고 적어둔 스킬이다.
 */
 const DIFFS = [
-  { upTo:  12, speed: 12.0, beat: 5, lure: 0.40, switchEvery: 7 },
-  { upTo:  30, speed: 12.4, beat: 5, lure: 0.46, switchEvery: 6 },
-  { upTo:  55, speed: 12.8, beat: 5, lure: 0.52, switchEvery: 5 },
-  { upTo:  85, speed: 13.2, beat: 5, lure: 0.56, switchEvery: 4 },
-  { upTo: 125, speed: 13.6, beat: 5, lure: 0.60, switchEvery: 3 },
-  { upTo: Infinity, speed: 14.0, beat: 5, lure: 0.62, switchEvery: 3 },
-];
-/* 개발용 난이도 덮어쓰기:  index.html?speed=12.6&lure=0.5&switch=5&beat=5
+  { upTo:  12, speed: 12.0, beat: 8, lure: 0.40, switchEvery: 1 },
+  { upTo:  30, speed: 12.4, beat: 7, lure: 0.46, switchEvery: 1 },
+  { upTo:  55, speed: 12.8, beat: 6, lure: 0.52, switchEvery: 1 },
+  { upTo:  85, speed: 13.2, beat: 5, lure: 0.58, switchEvery: 1 },
+  { upTo: 125, speed: 13.6, beat: 4, lure: 0.64, switchEvery: 1 },
+  { upTo: Infinity, speed: 14.0, beat: 3, lure: 0.68, switchEvery: 1 },
+];/* 개발용 난이도 덮어쓰기:  index.html?speed=12.6&lure=0.5&switch=5&beat=5
    준 값으로 모든 레벨을 평평하게 만든다. 느낌을 빨리 재보기 위한 것이고,
    이 상태의 기록은 기본 난이도와 비교할 수 없다(화면 아래에 「튜닝됨」이 뜬다). */
 let TUNED = null;
@@ -173,11 +175,11 @@ function createSim(seed, out){
   const sim = {
     seed: seed >>> 0, rng, out: out || {},
     tick: 0, t: 0,
-    phase: 'play',                 // play | switching | over
+    phase: 'play',                 // play | over
     shapes: [], nextId: 1,
     nextSpawnT: 0,
-    spawned: 0, switchN: 0,
-    cond: 0, nextCond: 0, switchT: 0,
+    sinceSwitch: 0, switchN: 0,
+    cond: 0, nextCond: 0,
     freeze: 0, dying: false, frozen: null,
     score: 0, lives: LIVES, processed: 0,
     stats: { hit:0, wrong:0, miss:0, pass:0, z3:0, z2:0, z1:0 },
@@ -185,11 +187,14 @@ function createSim(seed, out){
     over: false, lastFail: null,
   };
   sim.cond = Math.floor(rng() * 4);
+  sim.nextCond = pickOther(sim, sim.cond);
   sim.switchN = rollSwitch(sim, 0);
   return sim;
 }
 function rollSwitch(sim, lvl){
-  return Math.max(2, DIFFS[lvl].switchEvery + (Math.floor(sim.rng() * 3) - 1));
+  const n = DIFFS[lvl].switchEvery;
+  const j = Math.floor(sim.rng() * 3) - 1;   // 시드 스트림을 일정하게 유지하려고 항상 뽑는다
+  return n <= 2 ? n : Math.max(2, n + j);    // 1~2 면 지터 없이 그대로 (「항상 바뀜」)
 }
 function pickOther(sim, ci){
   const o = [0,1,2,3].filter(i => i !== ci);
@@ -237,8 +242,7 @@ function simStep(sim){
   if (sim.over || sim.freeze > 0) return;
 
   /* 4. 생성 — 화면에 도형이 없을 때만 (언제나 하나) */
-  if (sim.phase === 'play' && sim.shapes.length === 0 &&
-      sim.spawned < sim.switchN && sim.t >= sim.nextSpawnT){
+  if (sim.phase === 'play' && sim.shapes.length === 0 && sim.t >= sim.nextSpawnT){
     const d = DIFFS[levelIdx(sim.processed)];
     let ci;
     if (sim.rng() < d.lure){
@@ -246,26 +250,6 @@ function simStep(sim){
       ci = o[Math.floor(sim.rng() * 3)];
     } else ci = sim.cond;
     sim.shapes.push({ id: sim.nextId++, ci, y: SPAWN_Y, speed: d.speed });
-    sim.spawned++;
-  }
-
-  /* 5. 전환 시작 — 화면이 완전히 빈 뒤에만 (판정이 애매한 순간이 없도록) */
-  if (sim.phase === 'play' && sim.spawned >= sim.switchN && sim.shapes.length === 0){
-    sim.phase = 'switching'; sim.switchT = 0;
-    sim.nextCond = pickOther(sim, sim.cond);
-    if (sim.out.onSwitch) sim.out.onSwitch(sim.nextCond);
-  }
-
-  /* 6. 전환 진행 */
-  if (sim.phase === 'switching'){
-    sim.switchT += FRAME;
-    if (sim.switchT >= SWITCH_BANNER) sim.cond = sim.nextCond;
-    if (sim.switchT >= SWITCH_BLANK){
-      sim.phase = 'play';
-      sim.spawned = 0;
-      sim.switchN = rollSwitch(sim, levelIdx(sim.processed));
-      sim.nextSpawnT = sim.t;
-    }
   }
 }
 
@@ -277,7 +261,6 @@ function doTap(sim){
   const m = zoneMult(a.y);
   sim.shapes.splice(sim.shapes.indexOf(a), 1);
   sim.processed++;
-  queueNext(sim);
 
   if (a.ci === sim.cond){
     sim.score += 10 * m;
@@ -294,11 +277,11 @@ function doTap(sim){
     if (sim.lives <= 0) sim.dying = true;
     if (sim.out.onWrong) sim.out.onWrong(a);
   }
+  afterResolve(sim);
 }
 
 function resolveFloor(sim, s){
   sim.processed++;
-  queueNext(sim);
   if (s.ci === sim.cond){
     sim.stats.miss++;
     sim.lives--;
@@ -309,11 +292,29 @@ function resolveFloor(sim, s){
     sim.stats.pass++;
     if (sim.out.onPass) sim.out.onPass(s);
   }
+  afterResolve(sim);
 }
 
 /* 도형이 처리된 시점부터 beat 프레임 뒤에 다음이 나온다. 이것이 게임의 박자다. */
 function queueNext(sim){
   sim.nextSpawnT = sim.t + DIFFS[levelIdx(sim.processed)].beat * FRAME;
+}
+
+/* 도형 하나가 끝났다. **판정이 끝난 뒤에** 부른다 —
+   먼저 밀면 방금 그 도형을 새 기준으로 재게 된다.
+   기준은 큐처럼 한 칸 밀린다: 「다음」이 「지금」이 되고, 새 「다음」을 뽑는다.
+   다음 도형은 새 기준 아래에서 생성된다. 화면에 도형이 없는 순간에만 밀리므로
+   "판정 조건이 애매해지는 순간"은 존재하지 않는다. */
+function afterResolve(sim){
+  sim.sinceSwitch++;
+  if (sim.sinceSwitch >= sim.switchN){
+    sim.sinceSwitch = 0;
+    sim.switchN = rollSwitch(sim, levelIdx(sim.processed));
+    sim.cond = sim.nextCond;
+    sim.nextCond = pickOther(sim, sim.cond);
+    if (sim.out.onSwitch) sim.out.onSwitch(sim.cond);
+  }
+  queueNext(sim);
 }
 
 function endSim(sim){
@@ -419,7 +420,8 @@ const sndHit   = m => { tone(HIT_F[m], .09, 'sine', .20); tone(HIT_F[m] * 2, .07
 const sndWrong = () => { noiseBurst(.15, .38, 420, 1.4); tone(88, .19, 'sawtooth', .13, 0, 62); };
 const sndMiss  = () => { noiseBurst(.09, .24, 1100, .8); };
 const sndPass  = () => { tone(175, .045, 'sine', .05); };
-const sndSwitch= () => { tone(330, .09, 'triangle', .15); tone(554, .12, 'triangle', .15, .10); };
+/* 기준이 매 도형마다 밀리므로 소리는 아주 작게. 주 신호는 HUD 의 움직임이다. */
+const sndRoll  = () => { tone(660, .045, 'triangle', .045); };
 const sndBest  = () => { [660, 880, 1175].forEach((f, i) => tone(f, .13, 'triangle', .14, i * .07)); };
 const sndEmpty = () => { tone(135, .04, 'sine', .045); };
 
@@ -460,7 +462,7 @@ layout();
 let parts = [], texts = [], squashes = [], heartFx = [];
 let shake = 0, hudShake = 0, flash = null, goldFlash = 0, tintCi = -1, tintA = 0;
 let hint = null, hintCount = 0;   // 규칙을 놓쳤을 때만, 한 세션에 3번까지
-let banner = null;                // 조건 전환 배너 (연출. 정지 시간보다 오래 남는다)
+let condRoll = 0;                 // 1 → 0. HUD 에서 「다음」이 「지금」자리로 미끄러진다
 function setHint(t, ms){ hint = { t, life: 1, decay: 16.7 / ms }; }
 
 function burst(x, y, hex, n, spread){
@@ -508,8 +510,8 @@ function updateFx(dtms){
   if (goldFlash > 0) goldFlash = Math.max(0, goldFlash - 0.02 * k);
   if (flash){ flash.life -= flash.decay * k; if (flash.life <= 0) flash = null; }
   if (hint){ hint.life -= hint.decay * k; if (hint.life <= 0) hint = null; }
-  if (banner){ banner.life -= (16.7 / BANNER_LIFE) * k; if (banner.life <= 0) banner = null; }
-  if (tintA > 0 && (!G || G.phase !== 'switching')) tintA = Math.max(0, tintA - 0.004 * k);
+  if (condRoll > 0) condRoll = Math.max(0, condRoll - (16.7 / COND_ROLL) * k);
+  if (tintA > 0) tintA = Math.max(0, tintA - 0.006 * k);
 }
 
 /* =========================================================================
@@ -558,7 +560,7 @@ const liveOut = {
     sndPass();
   },
   onEmpty(){ hudShake = 1; sndEmpty(); },
-  onSwitch(ci){ tintCi = ci; tintA = 0.10; texts.length = 0; banner = { ci, life: 1 }; sndSwitch(); },
+  onSwitch(ci){ tintCi = ci; tintA = 0.06; condRoll = 1; sndRoll(); },
   onOver(){ finishGame(); },
 };
 
@@ -571,7 +573,7 @@ function startGame(seed){
   beatFired = false;
   replayCtl = null; replayVerdict = null;
   parts.length = 0; texts.length = 0; squashes.length = 0; heartFx.length = 0;
-  shake = 0; hudShake = 0; flash = null; goldFlash = 0; tintA = 0; hint = null; banner = null;
+  shake = 0; hudShake = 0; flash = null; goldFlash = 0; tintA = 0; hint = null; condRoll = 0;
   uiEl.classList.remove('show');
   msgEl.textContent = '';
 }
@@ -782,16 +784,45 @@ function drawHud(){
     heartPath(0, 0, 7); ctx.fillStyle = '#FF5C6C'; ctx.fill(); ctx.restore();
   }
 
-  /* 현재 조건 */
+  /* 기준: 「지금 ▸ 다음」. 기준은 매 도형마다 밀리므로 팝업 대신 여기서 상시로 보인다. */
   if (G){
-    const c = COLORS[G.cond];
+    const cur = COLORS[G.cond];
+    const CR = 12, NR = 9, cy = 20;
     ctx.font = '700 17px system-ui, sans-serif';
-    const tw = ctx.measureText(c.name).width;
-    const total = 23 + 6 + tw;
-    const sx = LANE_CX - total / 2 + off;
-    chip(G.cond, sx + 11.5, 21, 11.5);
+    const tw = ctx.measureText(cur.name).width;
+    const total = CR * 2 + 6 + tw + 13 + 9 + 11 + NR * 2;
+    /* 하트(왼쪽)와 점수(오른쪽) 사이 공간의 한가운데 */
+    const x0 = 190 - total / 2 + off;
+    const curX  = x0 + CR;
+    const nameX = x0 + CR * 2 + 6;
+    const chevX = nameX + tw + 13 + 4;
+    const nextX = chevX + 4 + 11 + NR;
+
+    /* 롤: 「다음」자리에서 「지금」자리로 미끄러지며 커진다 */
+    const e = 1 - condRoll * condRoll;               // 0 → 1 (ease-out)
+    ctx.save();
+    if (!RM && condRoll > 0){
+      chip(G.cond, nextX + (curX - nextX) * e, cy, NR + (CR - NR) * e);
+    } else {
+      chip(G.cond, curX, cy, CR);
+    }
+    ctx.globalAlpha = RM ? 1 : e;
     ctx.fillStyle = '#EAEFF9'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(c.name, sx + 29, 22);
+    ctx.fillText(cur.name, nameX, cy + 1);
+
+    /* 다음 */
+    ctx.globalAlpha = RM ? 1 : e;
+    ctx.font = '700 16px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(180,192,215,.55)';
+    ctx.textAlign = 'center';
+    ctx.fillText('›', chevX, cy);
+    ctx.globalAlpha = (RM ? 1 : e) * 0.8;   /* 미리 읽어야 하는 정보다. 너무 흐리면 안 된다 */
+    chip(G.nextCond, nextX, cy, NR);
+    ctx.globalAlpha = (RM ? 1 : e) * 0.8;
+    ctx.font = '700 8.5px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(180,192,215,.85)';
+    ctx.fillText('다음', nextX, cy + 17);
+    ctx.restore();
   }
 
   /* 점수 / 최고 */
@@ -879,42 +910,6 @@ function drawFx(){
   ctx.globalAlpha = 1;
 }
 
-/* 배너는 정지 시간(260ms)보다 오래(760ms) 남는다. 다음 도형이 떨어지는 동안
-   옅어지므로 전환이 잦아도 죽은 시간이 늘지 않는다. 도형이 배너 높이(y=430)에
-   닿을 즈음이면 이미 거의 사라져 있다. */
-function drawBanner(){
-  if (!banner) return;
-  const L = banner.life;                       // 1 → 0
-  const inA = Math.min(1, (1 - L) * 8);        // 앞부분 짧은 페이드인
-  const a = Math.min(inA, Math.min(1, L * 1.9));
-  if (a <= 0) return;
-  const c = COLORS[banner.ci];
-  const cy = 470;
-  ctx.save(); ctx.globalAlpha = a;
-  const pop = RM ? 1 : (1 + 0.14 * Math.max(0, 1 - (1 - L) * 9));
-  ctx.translate(LANE_CX, cy); ctx.scale(pop, pop); ctx.translate(-LANE_CX, -cy);
-
-  /* 가로 알약 모양으로 그린다 — 떨어지는 도형과 절대 헷갈리지 않도록 */
-  ctx.font = '800 27px system-ui, sans-serif';
-  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  const label = '→ ' + c.name;
-  const tw = ctx.measureText(label).width;
-  const padL = 16, gap = 12, padR = 20, rr = 23;
-  const wBox = padL + rr * 2 + gap + tw + padR, hBox = 66;
-  const x0 = LANE_CX - wBox / 2, y0 = cy - hBox / 2;
-
-  ctx.beginPath(); ctx.roundRect(x0, y0, wBox, hBox, 33);
-  ctx.fillStyle = 'rgba(10,13,22,.92)'; ctx.fill();
-  ctx.lineWidth = 2.5; ctx.strokeStyle = c.hex;
-  ctx.shadowColor = c.hex; ctx.shadowBlur = RM ? 0 : 18;
-  ctx.stroke(); ctx.shadowBlur = 0;
-
-  chip(banner.ci, x0 + padL + rr, cy, rr);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillText(label, x0 + padL + rr * 2 + gap, cy + 1);
-  ctx.restore();
-}
-
 function drawFreeze(){
   const f = G.frozen; if (!f) return;
   ctx.save();
@@ -944,8 +939,8 @@ function drawTitle(){
   for (let i = 0; i < 4; i++) chip(i, LANE_CX - 75 + i * 50, 320, 19);
   ctx.font = '600 12.5px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(160,175,205,.62)';
-  ctx.fillText('조건이 「빨강」이면 빨강만 누른다.', LANE_CX, 366);
-  ctx.fillText('아닌 색은 그냥 지나가게 둔다.', LANE_CX, 387);
+  ctx.fillText('위 기준과 같은 색이면 누르고, 아니면 보낸다.', LANE_CX, 366);
+  ctx.fillText('기준은 매번 바뀐다 — 다음 기준이 오른쪽에 미리 보인다.', LANE_CX, 387);
   ctx.font = '700 13.5px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(255,201,120,.92)';
   ctx.fillText('빨리 누를수록 위에서 잡힌다 = 배율이 크다', LANE_CX, 420);
@@ -1044,7 +1039,6 @@ function draw(alpha){
   drawFx();
   if (SCREEN !== 'title') drawHud();
 
-  drawBanner();
   if (G && G.freeze > 0 && G.frozen) drawFreeze();
   drawGround();
 
@@ -1116,6 +1110,7 @@ window.__judge = {
       score: G.score, lives: G.lives, level: levelIdx(G.processed),
       active: a ? { id: a.id, color: COLORS[a.ci].id, y: a.y, mult: zoneMult(a.y) } : null,
       condition: COLORS[G.cond].id,
+      nextCondition: COLORS[G.nextCond].id,
       over: G.over,
       /* 봇 편의용 추가 필드(요청서 목록 밖) */
       phase: G.phase, timeMs: G.tick * FRAME, tick: G.tick,
