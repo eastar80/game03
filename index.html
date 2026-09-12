@@ -67,8 +67,10 @@ const HUD_H   = 44;               // HUD 바 높이
 const ACTIVE_MIN = 52;            // HUD 아래로 나온 순간 = 판정 시계 시작 (32px, 약 60ms)
 const LANE_X0 = 58, LANE_X1 = 302, LANE_CX = 180;
 /* 도형은 언제나 화면에 하나뿐이고 늘 맨 위에서 시작한다.
-   그래서 y 는 곧 "네가 얼마나 오래 망설였나"다. 구역 경계는 위치가 아니라 시간으로 잡았다. */
-const Z3 = 300, Z2 = 450;         // y<300 ×3 / y<450 ×2 / 그 외 ×1
+   그래서 y 는 곧 "네가 얼마나 오래 망설였나"다.
+   판정 구간(ACTIVE_MIN~FLOOR = 548px)을 위에서부터 20/20/20/40 으로 나눈다.
+   ×1 만 넓은 것은 "늦게라도 맞히면 살긴 산다"를 넓게 두기 위해서다. */
+const Z4 = 162, Z3 = 272, Z2 = 382;   // ×4 / ×3 / ×2 / 그 외 ×1
 /* 기준은 **매 도형마다** 바뀐다. 전환을 알리는 정지도, 배너도 없다 —
    HUD 가 언제나 「지금 ▸ 다음」을 함께 보여주기 때문이다.
    덕분에 전환 비용이 0 이 되어, 매번 바꿔도 죽은 시간이 늘지 않는다.
@@ -77,10 +79,7 @@ const Z3 = 300, Z2 = 450;         // y<300 ×3 / y<450 ×2 / 그 외 ×1
 const COND_ROLL = 190;            // HUD 에서 「다음」이 「지금」자리로 미끄러지는 시간(ms)
 const WRONG_FREEZE  = 250;        // WRONG 정지(ms)
 const MISS_FREEZE   = 380;        // 마지막 목숨을 MISS 로 잃었을 때만 잠깐 멈춤
-/* 목숨 5개. 요청서는 ♥♥♥(3)이지만 코어 루프가 2배 빨라지면서 한 판이 절반으로
-   줄었다(37초). 목숨은 "몇 번 틀릴 수 있나"라 생존 시간이 목숨 수에 정비례한다.
-   5개로 45~90초 목표 구간에 돌아온다. README 7장 참고. */
-const LIVES = 5;
+const LIVES = 3;                  // 요청서 그대로. 한 판 길이는 README 4장 참고
 const RESTART_LOCK = 600;         // 게임 오버 후 재시작 탭을 받기까지(ms)
 
 /* ---------- 난이도: 이 표 하나만 고친다 ----------
@@ -91,12 +90,12 @@ const RESTART_LOCK = 600;         // 게임 오버 후 재시작 탭을 받기�
 
    ★ 화면에는 언제나 도형이 하나뿐이다. 다음 도형은 타이머가 아니라
      "지금 것이 처리되면" 나온다. 그래서 **빨리 칠수록 게임이 빨라진다** —
-     ×3 으로 끊으면 다음이 곧바로 오고, 망설이거나 비조건 도형을 흘려보내면 느려진다.
+     ×4 로 끊으면 다음이 곧바로 오고, 망설이거나 비조건 도형을 흘려보내면 느려진다.
      배율과 속도가 같은 방향을 가리키는 것이 이 게임의 유일한 축이다.
 
-   ★ 구역이 곧 시간이다 (활성화 시점 기준):
-     레벨 0 — ×3 은 344ms 안, ×2 는 ~552ms, ×1 은 ~761ms, 그 뒤 바닥 = MISS
-     레벨 5 — ×3 은 295ms 안, 바닥까지 652ms.
+   ★ 구역이 곧 시간이다 (활성화 시점 기준). 20/20/20/40 으로 나눈 결과:
+     레벨 0 — ×4 153ms / ×3 306ms / ×2 458ms / ×1 761ms, 그 뒤 바닥 = MISS
+     레벨 5 — ×4 131ms / ×3 262ms / ×2 393ms / ×1 652ms
 
    ★★ switchEvery: 1 — 기준은 **매 도형마다** 바뀐다. 전환 정지도 배너도 없고,
      HUD 가 「지금 ▸ 다음」을 상시로 보여준다. 그래서 전환 비용이 0 이다.
@@ -104,9 +103,11 @@ const RESTART_LOCK = 600;         // 게임 오버 후 재시작 탭을 받기�
      다음 기준을 미리 읽을 틈이 그만큼 줄어든다.
 
    ★★ speed 를 거의 눕힌 것이 이 표의 핵심이다.
-     사람의 색 인식은 대략 300ms 다. ×3 창이 그보다 **짧아지면 고민이 도박이 된다** —
-     정보 없이 찍는 것이라 원칙 1(실력이 결정한다)에 어긋난다.
-     그래서 ×3 창은 전 레벨에서 295~344ms, 즉 인식 시간 언저리에 붙잡아 둔다.
+     사람의 색 판단은 대략 300ms 다. 그 선이 어디에 떨어지느냐가 전부다:
+       ×2 = 알고 나서 친다 (안전)    ×3 = 아는 순간 바로 친다 (고민의 자리)
+       ×4 = 알기 전에 지른다 (도박)  ×1 = 망설였다
+     ×3 경계(306 → 262ms)를 인식 시간 언저리에 붙잡아 두는 것이 핵심이다.
+     ×4 는 반응으로 닿지 않는다(153ms) — 선택해서 거는 도박 칸이다. README 4장.
      "칠까 말까"가 매 도형마다 살아 있어야 한다.
      난이도는 대신 **lure(유혹 비율)와 switchEvery(조건 전환 빈도)** 에서 가져온다.
      전환 직후 한두 도형이 가장 많이 틀리는 구간이다 — 지각이 아니라 억제의 문제고,
@@ -160,7 +161,15 @@ function mulberry32(a){
   };
 }
 
-function zoneMult(y){ return y < Z3 ? 3 : y < Z2 ? 2 : 1; }
+function zoneMult(y){ return y < Z4 ? 4 : y < Z3 ? 3 : y < Z2 ? 2 : 1; }
+
+/* 배율 한 곳에서: 텍스트 색·크기, 구역 띠 색, 라벨 색, 소리 음높이, 화면 튐 */
+const MULT = {
+  4: { hex:'#FFD24A', size:40, band:'rgba(255,196,64,.105)', label:'rgba(255,206,84,.55)', freq:988, kick:3 },
+  3: { hex:'#FFE9A8', size:30, band:'rgba(255,206,84,.055)', label:'rgba(255,219,150,.38)', freq:740, kick:1.5 },
+  2: { hex:'#D8DEEA', size:24, band:'rgba(200,212,235,.040)', label:'rgba(200,212,235,.32)', freq:554, kick:0 },
+  1: { hex:'#FFFFFF', size:19, band:'rgba(255,90,100,.055)', label:'rgba(255,150,155,.30)', freq:392, kick:0 },
+};
 function levelIdx(processed){
   for (let i = 0; i < DIFFS.length; i++) if (processed < DIFFS[i].upTo) return i;
   return DIFFS.length - 1;
@@ -182,7 +191,7 @@ function createSim(seed, out){
     cond: 0, nextCond: 0,
     freeze: 0, dying: false, frozen: null,
     score: 0, lives: LIVES, processed: 0,
-    stats: { hit:0, wrong:0, miss:0, pass:0, z3:0, z2:0, z1:0 },
+    stats: { hit:0, wrong:0, miss:0, pass:0, z4:0, z3:0, z2:0, z1:0 },
     inputs: [], pending: 0,
     over: false, lastFail: null,
   };
@@ -415,8 +424,7 @@ function noiseBurst(dur, vol, cut, q){
   src.connect(f); f.connect(g); g.connect(AC.destination);
   src.start(t0);
 }
-const HIT_F = { 1: 392, 2: 587, 3: 880 };
-const sndHit   = m => { tone(HIT_F[m], .09, 'sine', .20); tone(HIT_F[m] * 2, .07, 'triangle', .06); };
+const sndHit   = m => { tone(MULT[m].freq, .09, 'sine', .20); tone(MULT[m].freq * 2, .07, 'triangle', .06); };
 const sndWrong = () => { noiseBurst(.15, .38, 420, 1.4); tone(88, .19, 'sawtooth', .13, 0, 62); };
 const sndMiss  = () => { noiseBurst(.09, .24, 1100, .8); };
 const sndPass  = () => { tone(175, .045, 'sine', .05); };
@@ -529,12 +537,12 @@ let lastResult = null;
 
 const liveOut = {
   onHit(s, m){
-    burst(LANE_CX, s.y, COLORS[s.ci].hex, 12 + m * 3, 1 + m * .25);
-    const label = '×' + m;
-    const col = m === 3 ? '#FFD75E' : m === 2 ? '#D8DEEA' : '#FFFFFF';
-    popText(LANE_CX, s.y - 10, label, col, m === 3 ? 34 : m === 2 ? 26 : 19);
+    const st = MULT[m];
+    texts.length = 0;              /* 배율 표시는 언제나 하나만. 겹치면 못 읽는다 */
+    burst(LANE_CX, s.y, COLORS[s.ci].hex, 10 + m * 3, 1 + m * .22);
+    popText(LANE_CX, s.y - 10, '×' + m, st.hex, st.size);
     sndHit(m);
-    if (m === 3) doShake(2);
+    if (st.kick) doShake(st.kick);
     if (G.score > bestShown){
       bestShown = G.score;
       if (!beatFired && bestRec.score > 0){
@@ -745,10 +753,11 @@ function drawLane(bare){
     return;
   }
   const bands = [
-    { y0: HUD_H, y1: Z3, c: 'rgba(255,206,84,.070)', l: '×3', lc: 'rgba(255,206,84,.42)' },
-    { y0: Z3,    y1: Z2, c: 'rgba(200,212,235,.045)', l: '×2', lc: 'rgba(200,212,235,.34)' },
-    { y0: Z2,  y1: FLOOR, c: 'rgba(255,90,100,.055)', l: '×1', lc: 'rgba(255,150,155,.30)' },
-  ];
+    { y0: HUD_H, y1: Z4, m: 4 },
+    { y0: Z4,    y1: Z3, m: 3 },
+    { y0: Z3,    y1: Z2, m: 2 },
+    { y0: Z2,  y1: FLOOR, m: 1 },
+  ].map(b => ({ ...b, c: MULT[b.m].band, l: '×' + b.m, lc: MULT[b.m].label }));
   for (const b of bands){
     ctx.fillStyle = b.c; ctx.fillRect(LANE_X0, b.y0, LANE_X1 - LANE_X0, b.y1 - b.y0);
     ctx.fillStyle = b.lc; ctx.font = '700 15px system-ui, sans-serif';
@@ -759,7 +768,7 @@ function drawLane(bare){
   ctx.save();
   ctx.setLineDash([5, 6]); ctx.lineWidth = 1;
   ctx.strokeStyle = 'rgba(255,255,255,.10)';
-  [Z3, Z2].forEach(y => { ctx.beginPath(); ctx.moveTo(LANE_X0, y); ctx.lineTo(LANE_X1, y); ctx.stroke(); });
+  [Z4, Z3, Z2].forEach(y => { ctx.beginPath(); ctx.moveTo(LANE_X0, y); ctx.lineTo(LANE_X1, y); ctx.stroke(); });
   ctx.restore();
 
   ctx.fillStyle = 'rgba(255,255,255,.30)'; ctx.fillRect(LANE_X0 - 6, FLOOR, (LANE_X1 - LANE_X0) + 12, 3);
@@ -935,7 +944,7 @@ function drawTitle(){
   ctx.fillText('골라!', LANE_CX, 200);
   ctx.font = '600 15px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(200,212,235,.80)';
-  ctx.fillText('조건 색만 탭 · 높이 탭하면 ×3', LANE_CX, 252);
+  ctx.fillText('조건 색만 탭 · 높이 탭하면 ×4', LANE_CX, 252);
   for (let i = 0; i < 4; i++) chip(i, LANE_CX - 75 + i * 50, 320, 19);
   ctx.font = '600 12.5px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(160,175,205,.62)';
@@ -985,10 +994,13 @@ function drawOver(){
   ctx.font = '700 14.5px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(215,225,245,.88)';
   ctx.fillText('맞춤 ' + s.hit + '    오답 ' + s.wrong + '    놓침 ' + s.miss, LANE_CX, 280);
-  ctx.font = '700 14.5px system-ui, sans-serif';
-  ctx.fillStyle = 'rgba(255,206,84,.92)'; ctx.fillText('×3  ' + s.z3, LANE_CX - 70, 312);
-  ctx.fillStyle = 'rgba(210,220,240,.92)'; ctx.fillText('×2  ' + s.z2, LANE_CX, 312);
-  ctx.fillStyle = 'rgba(255,255,255,.72)'; ctx.fillText('×1  ' + s.z1, LANE_CX + 70, 312);
+  ctx.font = '700 13.5px system-ui, sans-serif';
+  [4, 3, 2, 1].forEach((m, i) => {
+    ctx.fillStyle = MULT[m].hex;
+    ctx.globalAlpha = m === 1 ? .72 : .95;
+    ctx.fillText('×' + m + '  ' + s['z' + m], LANE_CX - 76 + i * 51, 312);
+  });
+  ctx.globalAlpha = 1;
 
   /* 마지막에 죽은 도형 — 붉게 남는다 */
   if (r.lastFail){

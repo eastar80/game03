@@ -43,7 +43,7 @@ function botInPage(cfg){
         if (a.color === st.condition) J.tap();
       } else if (cfg.type === 'safe'){
         /* 하단 구역(×1)에서만 탭 */
-        if (a.color === st.condition && a.y >= 450) J.tap();   /* ×1 구역 */
+        if (a.color === st.condition && a.y >= 382) J.tap();   /* ×1 구역 */
       } else {
         /* react(ms): "보고" 나서 ms 뒤에 탭. 5%는 오판. */
         if (a.id !== seenId){
@@ -87,7 +87,7 @@ function summarize(name, runs){
     survMax: Math.max(...runs.map(r => r.timeMs / 1000)),
     score: avg(r => r.score),
     died: runs.filter(r => r.over).length,
-    z3: s(r => r.stats.z3), z2: s(r => r.stats.z2), z1: s(r => r.stats.z1),
+    z4: s(r => r.stats.z4), z3: s(r => r.stats.z3), z2: s(r => r.stats.z2), z1: s(r => r.stats.z1),
     hit: s(r => r.stats.hit), wrong: s(r => r.stats.wrong),
     miss: s(r => r.stats.miss), pass: s(r => r.stats.pass),
   };
@@ -132,7 +132,7 @@ function summarize(name, runs){
   console.log('\n골라!  자동 플레이 결과   (시드 ' + SEEDS + '개 · 상한 ' + (MAX_MS / 1000) + '초)');
   console.log('─'.repeat(88));
   console.log(pad('봇', 12) + pad('생존(초) 평균', 15, true) + pad('  [최소~최대]', 16) +
-              pad('점수 평균', 11, true) + pad('사망', 6, true) + pad('  ×3 / ×2 / ×1', 18) + pad('  hit/wrong/miss/pass', 22));
+              pad('점수 평균', 11, true) + pad('사망', 6, true) + pad('  ×4/×3/×2/×1', 18) + pad('  hit/wrong/miss/pass', 22));
   console.log('─'.repeat(88));
   for (const b of bots){
     const r = results[b.key];
@@ -142,14 +142,14 @@ function summarize(name, runs){
       pad('  [' + f1(r.survMin) + '~' + f1(r.survMax) + ']', 16) +
       pad(Math.round(r.score), 11, true) +
       pad(r.died + '/' + SEEDS, 6, true) +
-      pad('  ' + r.z3 + ' / ' + r.z2 + ' / ' + r.z1, 18) +
+      pad('  ' + r.z4 + '/' + r.z3 + '/' + r.z2 + '/' + r.z1, 18) +
       pad('  ' + r.hit + '/' + r.wrong + '/' + r.miss + '/' + r.pass, 22)
     );
   }
   console.log('─'.repeat(88));
 
   const ratio = perfect.score > 0 ? results['safe'].score / perfect.score : 0;
-  const avgMult = perfect.hit > 0 ? (perfect.z3 * 3 + perfect.z2 * 2 + perfect.z1) / perfect.hit : 0;
+  const avgMult = perfect.hit > 0 ? (perfect.z4 * 4 + perfect.z3 * 3 + perfect.z2 * 2 + perfect.z1) / perfect.hit : 0;
   console.log('perfect 평균 배율      : ×' + f1(avgMult));
   console.log('safe / perfect 점수비  : ' + (ratio * 100).toFixed(1) + '%   (완료 기준: 40% 이하)');
 
