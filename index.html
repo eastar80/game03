@@ -83,15 +83,16 @@ const LIVES = 3;                  // 요청서 그대로. 한 판 길이는 READ
 const RESTART_LOCK = 600;         // 게임 오버 후 재시작 탭을 받기까지(ms)
 
 /* ---------- 난이도: 이 표 하나만 고친다 ----------
-   speed : px/frame(60fps 기준)
-   beat  : 도형이 처리된 뒤 다음 도형이 나오기까지(프레임). 화면이 완전히 비는 유일한 구간
+   speed : px/frame(60fps 기준). 판정 칸의 시간 창을 정한다
+   period: 생성 주기(프레임). 플레이와 무관한 고정 박자. **반드시 낙하 시간보다 길게**
    lure  : 비조건 도형 비율
    switchEvery : 조건 전환까지 도형 수(±1 시드 지터)
 
-   ★ 화면에는 언제나 도형이 하나뿐이다. 다음 도형은 타이머가 아니라
-     "지금 것이 처리되면" 나온다. 그래서 **빨리 칠수록 게임이 빨라진다** —
-     ×4 로 끊으면 다음이 곧바로 오고, 망설이거나 비조건 도형을 흘려보내면 느려진다.
-     배율과 속도가 같은 방향을 가리키는 것이 이 게임의 유일한 축이다.
+   ★ 도형은 **고정된 주기**로 떨어진다(`period` 프레임). 플레이와 무관하다.
+     메트로놈처럼 일정해야 "같은 색인가"만 판단하면 되기 때문이다.
+     주기는 낙하 시간보다 길어서 화면에는 언제나 도형이 하나뿐이고,
+     빨리 끊으면 그만큼 **다음 기준을 읽을 틈**이 생긴다 —
+     빠른 플레이의 보상은 점수와 **여유**이지 템포가 아니다.
 
    ★ 구역이 곧 시간이다 (활성화 시점 기준). 20/20/20/40 으로 나눈 결과:
      레벨 0 — ×4 153ms / ×3 306ms / ×2 458ms / ×1 761ms, 그 뒤 바닥 = MISS
@@ -99,8 +100,7 @@ const RESTART_LOCK = 600;         // 게임 오버 후 재시작 탭을 받기�
 
    ★★ switchEvery: 1 — 기준은 **매 도형마다** 바뀐다. 전환 정지도 배너도 없고,
      HUD 가 「지금 ▸ 다음」을 상시로 보여준다. 그래서 전환 비용이 0 이다.
-     beat 가 레벨과 함께 줄어드는 것(8 → 3 프레임)이 여기서 진짜 압박이 된다 —
-     다음 기준을 미리 읽을 틈이 그만큼 줄어든다.
+     period 가 줄어드는 것(967 → 750ms)이 압박이다 — 다음 기준을 읽을 틈이 줄어든다.
 
    ★★ speed 를 거의 눕힌 것이 이 표의 핵심이다.
      사람의 색 판단은 대략 300ms 다. 그 선이 어디에 떨어지느냐가 전부다:
@@ -109,37 +109,50 @@ const RESTART_LOCK = 600;         // 게임 오버 후 재시작 탭을 받기�
      ×3 경계(306 → 262ms)를 인식 시간 언저리에 붙잡아 두는 것이 핵심이다.
      ×4 는 반응으로 닿지 않는다(153ms) — 선택해서 거는 도박 칸이다. README 4장.
      "칠까 말까"가 매 도형마다 살아 있어야 한다.
-     난이도는 대신 **lure(유혹 비율)와 switchEvery(조건 전환 빈도)** 에서 가져온다.
-     전환 직후 한두 도형이 가장 많이 틀리는 구간이다 — 지각이 아니라 억제의 문제고,
-     그게 이 게임이 시험한다고 적어둔 스킬이다.
+     난이도는 대신 **lure(유혹 비율 0.40 → 0.68)와 period(주기 967 → 750ms)** 에서 가져온다.
+     주기가 줄면 다음 기준을 읽을 틈이 줄어든다 — 지각이 아니라 준비를 압박한다.
 */
 const DIFFS = [
-  { upTo:  12, speed: 12.0, beat: 8, lure: 0.40, switchEvery: 1 },
-  { upTo:  30, speed: 12.4, beat: 7, lure: 0.46, switchEvery: 1 },
-  { upTo:  55, speed: 12.8, beat: 6, lure: 0.52, switchEvery: 1 },
-  { upTo:  85, speed: 13.2, beat: 5, lure: 0.58, switchEvery: 1 },
-  { upTo: 125, speed: 13.6, beat: 4, lure: 0.64, switchEvery: 1 },
-  { upTo: Infinity, speed: 14.0, beat: 3, lure: 0.68, switchEvery: 1 },
-];/* 개발용 난이도 덮어쓰기:  index.html?speed=12.6&lure=0.5&switch=5&beat=5
+  //                       낙하    주기      틈(주기−낙하)
+  { upTo:  12, speed: 12.0, period: 58, lure: 0.40, switchEvery: 1 },  // 806ms  967ms  161ms
+  { upTo:  30, speed: 12.4, period: 55, lure: 0.46, switchEvery: 1 },  // 780    917    137
+  { upTo:  55, speed: 12.8, period: 52, lure: 0.52, switchEvery: 1 },  // 755    867    112
+  { upTo:  85, speed: 13.2, period: 50, lure: 0.58, switchEvery: 1 },  // 732    833    101
+  { upTo: 125, speed: 13.6, period: 47, lure: 0.64, switchEvery: 1 },  // 711    783     72
+  { upTo: Infinity, speed: 14.0, period: 45, lure: 0.68, switchEvery: 1 },  // 690  750  60
+];
+
+/* ★ 반드시 지킬 것: period ≥ 낙하 프레임((FLOOR−SPAWN_Y)/speed).
+   깨지면 화면에 도형이 둘 생기고, 그 순간 위험-보상 축이 뒤집힌다(README 9장 2차).
+   코드는 "도형이 없을 때만 생성"이라 큐가 생기지는 않지만 박자가 끊긴다. */
+(function checkPeriod(){
+  const fall = d => (FLOOR - SPAWN_Y) / d.speed;
+  DIFFS.forEach((d, i) => {
+    if (d.period < fall(d)) console.warn('[골라!] DIFFS[' + i + '] period ' + d.period +
+      ' < 낙하 ' + fall(d).toFixed(1) + ' 프레임 — 박자가 끊긴다');
+  });
+})();
+
+/* 개발용 난이도 덮어쓰기:  index.html?speed=12.6&lure=0.5&switch=5&period=55
    준 값으로 모든 레벨을 평평하게 만든다. 느낌을 빨리 재보기 위한 것이고,
    이 상태의 기록은 기본 난이도와 비교할 수 없다(화면 아래에 「튜닝됨」이 뜬다). */
 let TUNED = null;
 (function(){
   let q; try { q = new URLSearchParams(location.search); } catch(e){ return; }
   const num = k => q.has(k) && q.get(k) !== '' ? Number(q.get(k)) : null;
-  const sp = num('speed'), lu = num('lure'), sw = num('switch'), bt = num('beat');
+  const sp = num('speed'), lu = num('lure'), sw = num('switch'), bt = num('period');
   if (sp === null && lu === null && sw === null && bt === null) return;
   const parts = [];
   for (const d of DIFFS){
     if (sp !== null && isFinite(sp)) d.speed = sp;
     if (lu !== null && isFinite(lu)) d.lure = lu;
     if (sw !== null && isFinite(sw)) d.switchEvery = Math.max(2, Math.round(sw));
-    if (bt !== null && isFinite(bt)) d.beat = Math.max(0, Math.round(bt));
+    if (bt !== null && isFinite(bt)) d.period = Math.max(1, Math.round(bt));
   }
   if (sp !== null) parts.push('speed ' + DIFFS[0].speed);
   if (lu !== null) parts.push('lure ' + DIFFS[0].lure);
   if (sw !== null) parts.push('전환 ' + DIFFS[0].switchEvery);
-  if (bt !== null) parts.push('beat ' + DIFFS[0].beat);
+  if (bt !== null) parts.push('주기 ' + DIFFS[0].period);
   TUNED = parts.join(' · ');
 })();
 /* ---------- 색 4종 (+ 색맹 보조 기호) ---------- */
@@ -186,7 +199,7 @@ function createSim(seed, out){
     tick: 0, t: 0,
     phase: 'play',                 // play | over
     shapes: [], nextId: 1,
-    nextSpawnT: 0,
+    nextSpawnT: 0, lastSpawnT: 0, periodMs: DIFFS[0].period * FRAME,
     sinceSwitch: 0, switchN: 0,
     cond: 0, nextCond: 0,
     freeze: 0, dying: false, frozen: null,
@@ -226,7 +239,6 @@ function simStep(sim){
     if (sim.freeze === 0){
       sim.frozen = null;
       if (sim.dying) endSim(sim);
-      else queueNext(sim);
     }
     return;
   }
@@ -250,7 +262,7 @@ function simStep(sim){
   }
   if (sim.over || sim.freeze > 0) return;
 
-  /* 4. 생성 — 화면에 도형이 없을 때만 (언제나 하나) */
+  /* 4. 생성 — 고정 격자 위에서. 플레이와 무관하게 period 마다 한 개. */
   if (sim.phase === 'play' && sim.shapes.length === 0 && sim.t >= sim.nextSpawnT){
     const d = DIFFS[levelIdx(sim.processed)];
     let ci;
@@ -259,6 +271,9 @@ function simStep(sim){
       ci = o[Math.floor(sim.rng() * 3)];
     } else ci = sim.cond;
     sim.shapes.push({ id: sim.nextId++, ci, y: SPAWN_Y, speed: d.speed });
+    sim.lastSpawnT = sim.nextSpawnT;
+    sim.periodMs = d.period * FRAME;
+    do { sim.nextSpawnT += sim.periodMs; } while (sim.nextSpawnT <= sim.t);
   }
 }
 
@@ -283,6 +298,7 @@ function doTap(sim){
     /* 눌린 도형은 위에서 이미 빠졌다. 남은 것 중 조건 색이 있으면 = 위엣것을 노리다 아래를 눌렀다. */
     sim.frozen = { ci: a.ci, y: a.y, blocked: sim.shapes.some(x => x.ci === sim.cond) };
     sim.freeze = Math.round(WRONG_FREEZE / FRAME);
+    sim.nextSpawnT += WRONG_FREEZE;      /* 정지한 만큼 박자도 뒤로 — 격자가 어긋나지 않게 */
     if (sim.lives <= 0) sim.dying = true;
     if (sim.out.onWrong) sim.out.onWrong(a);
   }
@@ -297,16 +313,12 @@ function resolveFloor(sim, s){
     sim.lastFail = { ci: s.ci, y: FLOOR, kind: 'miss' };
     if (sim.out.onMiss) sim.out.onMiss(s);
     if (sim.lives <= 0){ sim.dying = true; sim.freeze = Math.round(MISS_FREEZE / FRAME); }
+    else sim.nextSpawnT = Math.max(sim.nextSpawnT, sim.t + 8 * FRAME);   /* MISS 뒤 최소 숨 */
   } else {
     sim.stats.pass++;
     if (sim.out.onPass) sim.out.onPass(s);
   }
   afterResolve(sim);
-}
-
-/* 도형이 처리된 시점부터 beat 프레임 뒤에 다음이 나온다. 이것이 게임의 박자다. */
-function queueNext(sim){
-  sim.nextSpawnT = sim.t + DIFFS[levelIdx(sim.processed)].beat * FRAME;
 }
 
 /* 도형 하나가 끝났다. **판정이 끝난 뒤에** 부른다 —
@@ -323,7 +335,6 @@ function afterResolve(sim){
     sim.nextCond = pickOther(sim, sim.cond);
     if (sim.out.onSwitch) sim.out.onSwitch(sim.cond);
   }
-  queueNext(sim);
 }
 
 function endSim(sim){
@@ -876,17 +887,28 @@ function drawTarget(y){
 function drawGround(){
   if (SCREEN !== 'game' || replayCtl) return;
   ctx.save();
+
+  /* 고정 박자를 눈에 보이게. 판정 구역이 아니라 바닥선 아래에 둔다 —
+     여기 있는 것은 "언제 다음이 오나"이지 "언제까지 쳐야 하나"가 아니다. */
+  if (G && !G.over && G.periodMs > 0){
+    const w = LANE_X1 - LANE_X0, y = FLOOR + 11;
+    const k = Math.max(0, Math.min(1, (G.t - G.lastSpawnT) / G.periodMs));
+    ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fillRect(LANE_X0, y, w, 2);
+    ctx.fillStyle = k > .88 ? 'rgba(255,215,94,.55)' : 'rgba(255,255,255,.22)';
+    ctx.fillRect(LANE_X0, y, w * k, 2);
+  }
+
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (hint){
     ctx.globalAlpha = Math.min(1, hint.life * 2.4);
     ctx.font = '700 12px system-ui, sans-serif';
     ctx.fillStyle = '#FFC978';
-    ctx.fillText(hint.t, LANE_CX, FLOOR + 22);
+    ctx.fillText(hint.t, LANE_CX, FLOOR + 25);
   } else if (TUNED){
     ctx.globalAlpha = .5;
     ctx.font = '600 11px system-ui, sans-serif';
     ctx.fillStyle = '#7FD1E0';
-    ctx.fillText('튜닝됨 · ' + TUNED, LANE_CX, FLOOR + 22);
+    ctx.fillText('튜닝됨 · ' + TUNED, LANE_CX, FLOOR + 25);
   }
   ctx.restore();
 }
@@ -955,7 +977,7 @@ function drawTitle(){
   ctx.fillText('빨리 누를수록 위에서 잡힌다 = 배율이 크다', LANE_CX, 420);
   ctx.font = '600 12px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(160,175,205,.55)';
-  ctx.fillText('끊는 순간 다음 도형이 온다. 빠를수록 빨라진다.', LANE_CX, 441);
+  ctx.fillText('도형은 일정한 박자로 온다. 빨리 끊을수록 다음을 볼 틈이 는다.', LANE_CX, 441);
   const bl = 0.55 + 0.45 * Math.sin(performance.now() / 380);
   ctx.globalAlpha = RM ? 1 : bl;
   ctx.font = '800 22px system-ui, sans-serif';
