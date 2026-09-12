@@ -43,7 +43,7 @@ function botInPage(cfg){
         if (a.color === st.condition) J.tap();
       } else if (cfg.type === 'safe'){
         /* 하단 구역(×1)에서만 탭 */
-        if (a.color === st.condition && a.y >= 400) J.tap();
+        if (a.color === st.condition && a.y >= 450) J.tap();   /* ×1 구역 */
       } else {
         /* react(ms): "보고" 나서 ms 뒤에 탭. 5%는 오판. */
         if (a.id !== seenId){
