@@ -1,0 +1,105 @@
+# 골라! — 저장소 안내
+
+> 상위 지침: [`docs/프로젝트-지침.md`](docs/프로젝트-지침.md) (중독성 있는 간단한 게임).
+> 이 게임의 요청서: [`docs/3rd-game-개발-요청서.md`](docs/3rd-game-개발-요청서.md).
+> 충돌하면 지침이 우선이고, 어긴 곳은 `README.md` 7장에 이유를 적는다.
+
+- **규칙:** 위에서 떨어지는 도형 중 지금 조건에 맞는 색만 탭한다. 아닌 것은 그냥 보낸다.
+- **스킬:** 억제(누르지 말 것을 참기) + 반응.
+
+## 파일 구조
+
+```
+index.html                 게임 전체 (단일 파일, 빌드 없음, 외부 의존 0)
+CLAUDE.md                  이 문서 — 구조·상태 머신·훅·컨벤션
+README.md                  규칙·점수식·DIFFS 값과 이유·봇 결과·지침을 어긴 곳
+test/autoplay.mjs          Playwright 자동 플레이 봇 3종 + 재현성 검증
+docs/                      상위 지침 + 이 게임의 개발 요청서 (원본)
+package.json               테스트 실행용(playwright devDependency)만
+.github/workflows/pages.yml  main 푸시 → GitHub Pages 배포
+```
+
+`index.html` 안의 순서:
+
+| 구역 | 내용 |
+|---|---|
+| 상수 | 논리 좌표, 구역 경계, 전환/정지 시간 |
+| `DIFFS` | 난이도 표 **하나**. 튜닝은 여기만 고친다 |
+| `COLORS` | 색 4종 + 색맹 보조 기호 |
+| `mulberry32` | 게임 로직의 **유일한** 난수원 |
+| 시뮬레이션 | `createSim` / `simStep` / `simTap` / `doTap` / `resolveFloor` — 순수. DOM·오디오를 모른다 |
+| `Store` | 저장 어댑터 `window.storage` → `localStorage` → 메모리 |
+| `LB` | Supabase REST 리더보드 (URL 비면 통째로 꺼짐) |
+| 오디오 | Web Audio 합성. 첫 제스처 후 `audioInit()` |
+| 연출 | 파편·텍스트·흔들림·플래시. **여기서만 `Math.random` 허용** |
+| 앱 | 화면 전환, 입력, 메인 루프, 그리기 |
+| `judgeReplay` | 재현 검증 (렌더 없이 다시 돌린다) |
+| `window.__judge` | 자동 플레이 훅 |
+
+## 상태 머신
+
+```
+        탭                    목숨 0
+title ─────► play ──────────────────────► over ──┐
+              │  ▲                                │
+   전환 시점   │  │ 1.2초 후                        │ 탭(0.6초 락 후)
+      도형 0개 ▼  │                                │
+           switching                              │
+                                                  │
+              ▲───────────────────────────────────┘
+```
+
+- `SCREEN` (`title` / `game` / `over`) 은 앱 레벨, `G.phase` (`play` / `switching` / `over`) 는 시뮬레이션 레벨.
+- **WRONG 정지(250ms)** 와 **마지막 목숨을 MISS 로 잃었을 때(380ms)** 는 별도 상태가 아니라
+  `G.freeze` 카운터다. 정지 중에는 세계가 멈추고 입력은 버려진다.
+- `switching`: 남은 도형이 0개가 된 뒤 시작 → 1.2초 공백. 그 안에서 배너 0.8초,
+  0.8초 시점에 HUD 조건이 새 색으로 바뀌고, 1.2초 시점에 생성 재개.
+
+## 재현성 (원칙 1)
+
+**고정 타임스텝.** 1틱 = 1프레임 = 1000/60 ms. `requestAnimationFrame` 은 누산기로
+틱을 몰 뿐이고(프레임당 최대 3틱 = dt 클램프 [0,3]), 시뮬레이션은 주사율과 무관하게
+항상 같은 틱 열을 밟는다. 렌더만 남은 시간으로 보간해서 고주사율에서도 부드럽다.
+
+- 시드가 정하는 것: 도형 색 순열, 조건 색, 조건 전환 시점(±1 지터).
+- 시드가 정하지 **않는** 것: 결과.
+- 입력 로그는 `[{t: 게임시간ms}]`. `t / (1000/60)` 이 정확히 틱 번호다.
+- `window.__judge.replay(seed, inputs)` 가 같은 점수를 내지 못하면 원칙 1 위반.
+  게임 오버 화면의 `시드 · 재현` 버튼이 이 검증을 돌리고 콘솔에 결과를 찍은 뒤 그 판을 재생한다.
+
+## 자동 플레이 훅
+
+```js
+window.__judge = {
+  reset(seed),          // 새 판 + MANUAL 모드(rAF 스텝 정지). 시간은 step() 이 민다
+  step(dtFrames),       // 정수 틱만큼 진행. 렌더 없이도 동작. state() 를 돌려준다
+  tap(),                // 입력 큐에 1회. 다음 step() 의 맨 앞에서 처리된다
+  state(),              // { score, lives, level, active, condition, over, ...추가필드 }
+  replay(seed, inputs), // 별도 시뮬레이션으로 재현. 현재 판을 건드리지 않는다
+  lastResult(), manual(on), DIFFS,
+};
+```
+
+`state().active` 는 요청서의 `{color, y}` 에 `id` 와 `mult` 를 더한다(봇이 "같은 도형"을
+추적해야 해서). `timeMs` / `tick` / `processed` / `stats` / `phase` 도 봇 편의용 추가 필드다.
+
+## 컨벤션
+
+- 단일 `index.html`. 빌드 없음. 외부 라이브러리·에셋·폰트 없음.
+- Canvas 2D + Web Audio 합성. 오디오는 첫 사용자 제스처 이후.
+- 게임 로직에서 `Math.random` 금지. 연출(파편·흔들림)에만 허용.
+- 난이도는 `DIFFS` 한 표. 다른 곳에 숫자를 흘리지 않는다.
+- UI 텍스트는 한국어. 시스템 폰트.
+- `prefers-reduced-motion: reduce` 면 흔들림·확대·파편을 끄고 색·텍스트·소리만 남긴다.
+- 입력: 터치·마우스·스페이스·엔터 모두 "탭". `touchstart` 는 `preventDefault`.
+- 저장은 어댑터로만.
+- **시스템은 하나만** (원칙 9). 콤보·덱·아이템·스테이지 제안은 코드가 아니라 README 에 적는다.
+
+## 테스트
+
+```bash
+npm test                                  # 기본 8 시드, 상한 120초
+node test/autoplay.mjs --seeds 20 --max 90
+```
+
+봇 수치는 **밸런스 확인용이고 재미의 증거가 아니다.** 재미는 직접 10판 해보고 판단한다.

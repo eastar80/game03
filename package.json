@@ -1,0 +1,14 @@
+{
+  "name": "golra",
+  "version": "1.0.0",
+  "private": true,
+  "description": "골라! — 조건 색만 탭하는 원버튼 게임",
+  "type": "module",
+  "scripts": {
+    "test": "node test/autoplay.mjs",
+    "serve": "npx --yes http-server -p 8080 -c-1 ."
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}
