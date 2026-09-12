@@ -69,8 +69,14 @@ const LANE_X0 = 58, LANE_X1 = 302, LANE_CX = 180;
 /* 도형은 언제나 화면에 하나뿐이고 늘 맨 위에서 시작한다.
    그래서 y 는 곧 "네가 얼마나 오래 망설였나"다. 구역 경계는 위치가 아니라 시간으로 잡았다. */
 const Z3 = 300, Z2 = 450;         // y<300 ×3 / y<450 ×2 / 그 외 ×1
-const SWITCH_BLANK  = 900;        // 조건 전환 총 공백(ms) — 이 안에서 배너가 뜬다
-const SWITCH_BANNER = 620;        // 배너 표시 시간(ms). 이 시점에 HUD 조건이 바뀐다
+/* 조건 전환. 요청서의 1.2초 공백은 "화면에 도형이 여럿 남은 채로 전환하면 판정이
+   애매해진다"를 막으려던 것이다. 이제 도형은 하나뿐이고 도형 사이는 이미 비어 있으므로
+   그 공백은 존재 이유가 없다. 박자를 조금 늘려 배너를 끼워 넣는 것으로 끝난다.
+   대신 전환을 자주 한다 — 난이도를 "속도(지각)"가 아니라 "전환(억제)"에서 가져온다. */
+const SWITCH_BLANK  = 260;        // 조건 전환 때 멈추는 시간(ms) — 배너는 이보다 오래 남는다
+const SWITCH_BANNER = 170;        // 이 시점에 HUD 조건이 새 색으로 바뀐다
+const BANNER_LIFE   = 760;        // 배너가 화면에 남아 사라지는 시간(ms). 다음 도형이 떨어지는
+                                  // 동안 옅어지므로, 전환이 잦아도 죽은 시간이 되지 않는다
 const WRONG_FREEZE  = 250;        // WRONG 정지(ms)
 const MISS_FREEZE   = 380;        // 마지막 목숨을 MISS 로 잃었을 때만 잠깐 멈춤
 /* 목숨 5개. 요청서는 ♥♥♥(3)이지만 코어 루프가 2배 빨라지면서 한 판이 절반으로
@@ -92,19 +98,47 @@ const RESTART_LOCK = 600;         // 게임 오버 후 재시작 탭을 받기�
 
    ★ 구역이 곧 시간이다 (활성화 시점 기준):
      레벨 0 — ×3 은 344ms 안, ×2 는 ~552ms, ×1 은 ~761ms, 그 뒤 바닥 = MISS
-     레벨 5 — ×3 은 235ms 안, 바닥까지 519ms.
-     **망설이는 것도 공짜가 아니다.** ×1 구역은 바닥 바로 위이고, 레벨이 오르면
-     신중한 플레이는 MISS 로 죽는다. 빠르면 WRONG, 느리면 MISS — 그 사이가 스위트 스팟이다.
+     레벨 5 — ×3 은 295ms 안, 바닥까지 652ms.
+
+   ★★ speed 를 거의 눕힌 것이 이 표의 핵심이다.
+     사람의 색 인식은 대략 300ms 다. ×3 창이 그보다 **짧아지면 고민이 도박이 된다** —
+     정보 없이 찍는 것이라 원칙 1(실력이 결정한다)에 어긋난다.
+     그래서 ×3 창은 전 레벨에서 295~344ms, 즉 인식 시간 언저리에 붙잡아 둔다.
+     "칠까 말까"가 매 도형마다 살아 있어야 한다.
+     난이도는 대신 **lure(유혹 비율)와 switchEvery(조건 전환 빈도)** 에서 가져온다.
+     전환 직후 한두 도형이 가장 많이 틀리는 구간이다 — 지각이 아니라 억제의 문제고,
+     그게 이 게임이 시험한다고 적어둔 스킬이다.
 */
 const DIFFS = [
-  { upTo:  15, speed: 12.0, beat: 5, lure: 0.38, switchEvery: 12 },
-  { upTo:  35, speed: 13.0, beat: 5, lure: 0.44, switchEvery: 10 },
-  { upTo:  60, speed: 14.0, beat: 5, lure: 0.48, switchEvery:  9 },
-  { upTo:  90, speed: 15.1, beat: 5, lure: 0.52, switchEvery:  8 },
-  { upTo: 130, speed: 16.3, beat: 5, lure: 0.55, switchEvery:  7 },
-  { upTo: Infinity, speed: 17.6, beat: 5, lure: 0.55, switchEvery: 6 },
+  { upTo:  12, speed: 12.0, beat: 5, lure: 0.40, switchEvery: 7 },
+  { upTo:  30, speed: 12.4, beat: 5, lure: 0.46, switchEvery: 6 },
+  { upTo:  55, speed: 12.8, beat: 5, lure: 0.52, switchEvery: 5 },
+  { upTo:  85, speed: 13.2, beat: 5, lure: 0.56, switchEvery: 4 },
+  { upTo: 125, speed: 13.6, beat: 5, lure: 0.60, switchEvery: 3 },
+  { upTo: Infinity, speed: 14.0, beat: 5, lure: 0.62, switchEvery: 3 },
 ];
-
+/* 개발용 난이도 덮어쓰기:  index.html?speed=12.6&lure=0.5&switch=5&beat=5
+   준 값으로 모든 레벨을 평평하게 만든다. 느낌을 빨리 재보기 위한 것이고,
+   이 상태의 기록은 기본 난이도와 비교할 수 없다(화면 아래에 「튜닝됨」이 뜬다). */
+let TUNED = null;
+(function(){
+  let q; try { q = new URLSearchParams(location.search); } catch(e){ return; }
+  const num = k => q.has(k) && q.get(k) !== '' ? Number(q.get(k)) : null;
+  const sp = num('speed'), lu = num('lure'), sw = num('switch'), bt = num('beat');
+  if (sp === null && lu === null && sw === null && bt === null) return;
+  const parts = [];
+  for (const d of DIFFS){
+    if (sp !== null && isFinite(sp)) d.speed = sp;
+    if (lu !== null && isFinite(lu)) d.lure = lu;
+    if (sw !== null && isFinite(sw)) d.switchEvery = Math.max(2, Math.round(sw));
+    if (bt !== null && isFinite(bt)) d.beat = Math.max(0, Math.round(bt));
+  }
+  if (sp !== null) parts.push('speed ' + DIFFS[0].speed);
+  if (lu !== null) parts.push('lure ' + DIFFS[0].lure);
+  if (sw !== null) parts.push('전환 ' + DIFFS[0].switchEvery);
+  if (bt !== null) parts.push('beat ' + DIFFS[0].beat);
+  TUNED = parts.join(' · ');
+})();
 /* ---------- 색 4종 (+ 색맹 보조 기호) ---------- */
 const COLORS = [
   { id:'blue',   hex:'#3B82F6', name:'파랑', glyph:'dot' },
@@ -155,7 +189,7 @@ function createSim(seed, out){
   return sim;
 }
 function rollSwitch(sim, lvl){
-  return Math.max(3, DIFFS[lvl].switchEvery + (Math.floor(sim.rng() * 3) - 1));
+  return Math.max(2, DIFFS[lvl].switchEvery + (Math.floor(sim.rng() * 3) - 1));
 }
 function pickOther(sim, ci){
   const o = [0,1,2,3].filter(i => i !== ci);
@@ -426,6 +460,7 @@ layout();
 let parts = [], texts = [], squashes = [], heartFx = [];
 let shake = 0, hudShake = 0, flash = null, goldFlash = 0, tintCi = -1, tintA = 0;
 let hint = null, hintCount = 0;   // 규칙을 놓쳤을 때만, 한 세션에 3번까지
+let banner = null;                // 조건 전환 배너 (연출. 정지 시간보다 오래 남는다)
 function setHint(t, ms){ hint = { t, life: 1, decay: 16.7 / ms }; }
 
 function burst(x, y, hex, n, spread){
@@ -473,6 +508,7 @@ function updateFx(dtms){
   if (goldFlash > 0) goldFlash = Math.max(0, goldFlash - 0.02 * k);
   if (flash){ flash.life -= flash.decay * k; if (flash.life <= 0) flash = null; }
   if (hint){ hint.life -= hint.decay * k; if (hint.life <= 0) hint = null; }
+  if (banner){ banner.life -= (16.7 / BANNER_LIFE) * k; if (banner.life <= 0) banner = null; }
   if (tintA > 0 && (!G || G.phase !== 'switching')) tintA = Math.max(0, tintA - 0.004 * k);
 }
 
@@ -522,7 +558,7 @@ const liveOut = {
     sndPass();
   },
   onEmpty(){ hudShake = 1; sndEmpty(); },
-  onSwitch(ci){ tintCi = ci; tintA = 0.08; texts.length = 0; sndSwitch(); },
+  onSwitch(ci){ tintCi = ci; tintA = 0.10; texts.length = 0; banner = { ci, life: 1 }; sndSwitch(); },
   onOver(){ finishGame(); },
 };
 
@@ -535,7 +571,7 @@ function startGame(seed){
   beatFired = false;
   replayCtl = null; replayVerdict = null;
   parts.length = 0; texts.length = 0; squashes.length = 0; heartFx.length = 0;
-  shake = 0; hudShake = 0; flash = null; goldFlash = 0; tintA = 0; hint = null;
+  shake = 0; hudShake = 0; flash = null; goldFlash = 0; tintA = 0; hint = null; banner = null;
   uiEl.classList.remove('show');
   msgEl.textContent = '';
 }
@@ -801,11 +837,17 @@ function drawGround(){
   if (SCREEN !== 'game' || replayCtl) return;
   ctx.save();
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  if (!hint){ ctx.restore(); return; }
-  ctx.globalAlpha = Math.min(1, hint.life * 2.4);
-  ctx.font = '700 12px system-ui, sans-serif';
-  ctx.fillStyle = '#FFC978';
-  ctx.fillText(hint.t, LANE_CX, FLOOR + 22);
+  if (hint){
+    ctx.globalAlpha = Math.min(1, hint.life * 2.4);
+    ctx.font = '700 12px system-ui, sans-serif';
+    ctx.fillStyle = '#FFC978';
+    ctx.fillText(hint.t, LANE_CX, FLOOR + 22);
+  } else if (TUNED){
+    ctx.globalAlpha = .5;
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.fillStyle = '#7FD1E0';
+    ctx.fillText('튜닝됨 · ' + TUNED, LANE_CX, FLOOR + 22);
+  }
   ctx.restore();
 }
 
@@ -837,21 +879,39 @@ function drawFx(){
   ctx.globalAlpha = 1;
 }
 
+/* 배너는 정지 시간(260ms)보다 오래(760ms) 남는다. 다음 도형이 떨어지는 동안
+   옅어지므로 전환이 잦아도 죽은 시간이 늘지 않는다. 도형이 배너 높이(y=430)에
+   닿을 즈음이면 이미 거의 사라져 있다. */
 function drawBanner(){
-  const p = G.switchT / SWITCH_BANNER;
-  if (p > 1) return;
-  const a = p < .18 ? p / .18 : p > .8 ? (1 - p) / .2 : 1;
-  const c = COLORS[G.nextCond];
-  ctx.save(); ctx.globalAlpha = Math.max(0, a);
-  const pop = RM ? 1 : (1 + 0.12 * Math.max(0, 1 - p * 6));
-  ctx.translate(LANE_CX, 290); ctx.scale(pop, pop); ctx.translate(-LANE_CX, -290);
-  ctx.shadowColor = c.hex; ctx.shadowBlur = RM ? 0 : 26;
-  chip(G.nextCond, LANE_CX, 290, 48);
-  ctx.shadowBlur = 0;
-  ctx.font = '800 30px system-ui, sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (!banner) return;
+  const L = banner.life;                       // 1 → 0
+  const inA = Math.min(1, (1 - L) * 8);        // 앞부분 짧은 페이드인
+  const a = Math.min(inA, Math.min(1, L * 1.9));
+  if (a <= 0) return;
+  const c = COLORS[banner.ci];
+  const cy = 470;
+  ctx.save(); ctx.globalAlpha = a;
+  const pop = RM ? 1 : (1 + 0.14 * Math.max(0, 1 - (1 - L) * 9));
+  ctx.translate(LANE_CX, cy); ctx.scale(pop, pop); ctx.translate(-LANE_CX, -cy);
+
+  /* 가로 알약 모양으로 그린다 — 떨어지는 도형과 절대 헷갈리지 않도록 */
+  ctx.font = '800 27px system-ui, sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  const label = '→ ' + c.name;
+  const tw = ctx.measureText(label).width;
+  const padL = 16, gap = 12, padR = 20, rr = 23;
+  const wBox = padL + rr * 2 + gap + tw + padR, hBox = 66;
+  const x0 = LANE_CX - wBox / 2, y0 = cy - hBox / 2;
+
+  ctx.beginPath(); ctx.roundRect(x0, y0, wBox, hBox, 33);
+  ctx.fillStyle = 'rgba(10,13,22,.92)'; ctx.fill();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = c.hex;
+  ctx.shadowColor = c.hex; ctx.shadowBlur = RM ? 0 : 18;
+  ctx.stroke(); ctx.shadowBlur = 0;
+
+  chip(banner.ci, x0 + padL + rr, cy, rr);
   ctx.fillStyle = '#FFFFFF';
-  ctx.fillText('→ ' + c.name, LANE_CX, 372);
+  ctx.fillText(label, x0 + padL + rr * 2 + gap, cy + 1);
   ctx.restore();
 }
 
@@ -984,7 +1044,7 @@ function draw(alpha){
   drawFx();
   if (SCREEN !== 'title') drawHud();
 
-  if (G && G.phase === 'switching') drawBanner();
+  drawBanner();
   if (G && G.freeze > 0 && G.frozen) drawFreeze();
   drawGround();
 
