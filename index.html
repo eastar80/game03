@@ -241,7 +241,8 @@ function doTap(sim){
     sim.stats.wrong++;
     sim.lives--;
     sim.lastFail = { ci: a.ci, y: a.y, kind: 'wrong' };
-    sim.frozen = { ci: a.ci, y: a.y };
+    /* 눌린 도형은 위에서 이미 빠졌다. 남은 것 중 조건 색이 있으면 = 위엣것을 노리다 아래를 눌렀다. */
+    sim.frozen = { ci: a.ci, y: a.y, blocked: sim.shapes.some(x => x.ci === sim.cond) };
     sim.freeze = Math.round(WRONG_FREEZE / FRAME);
     if (sim.lives <= 0) sim.dying = true;
     if (sim.out.onWrong) sim.out.onWrong(a);
@@ -405,6 +406,8 @@ layout();
    ========================================================================= */
 let parts = [], texts = [], squashes = [], heartFx = [];
 let shake = 0, hudShake = 0, flash = null, goldFlash = 0, tintCi = -1, tintA = 0;
+let hint = null, hintCount = 0;   // 규칙을 놓쳤을 때만, 한 세션에 3번까지
+function setHint(t, ms){ hint = { t, life: 1, decay: 16.7 / ms }; }
 
 function burst(x, y, hex, n, spread){
   if (RM) return;
@@ -449,6 +452,7 @@ function updateFx(dtms){
   if (hudShake > 0) hudShake = Math.max(0, hudShake - 0.06 * k);
   if (goldFlash > 0) goldFlash = Math.max(0, goldFlash - 0.02 * k);
   if (flash){ flash.life -= flash.decay * k; if (flash.life <= 0) flash = null; }
+  if (hint){ hint.life -= hint.decay * k; if (hint.life <= 0) hint = null; }
   if (tintA > 0 && (!G || G.phase !== 'switching')) tintA = Math.max(0, tintA - 0.004 * k);
 }
 
@@ -485,6 +489,10 @@ const liveOut = {
     doShake(6); doFlash(255, 60, 60, .34, 120);
     breakHeart(G.lives);
     sndWrong();
+    if (G.frozen && G.frozen.blocked && hintCount < 3){
+      hintCount++;
+      setHint('맞는 색은 위에 있다 · 탭은 맨 아래 도형에', 2600);
+    }
   },
   onMiss(s){
     squashes.push({ y: FLOOR, ci: s.ci, life: 1 });
@@ -511,7 +519,7 @@ function startGame(seed){
   beatFired = false;
   replayCtl = null; replayVerdict = null;
   parts.length = 0; texts.length = 0; squashes.length = 0; heartFx.length = 0;
-  shake = 0; hudShake = 0; flash = null; goldFlash = 0; tintA = 0;
+  shake = 0; hudShake = 0; flash = null; goldFlash = 0; tintA = 0; hint = null;
   uiEl.classList.remove('show');
   msgEl.textContent = '';
 }
@@ -753,6 +761,43 @@ function drawHud(){
   ctx.restore();
 }
 
+function chevron(x, y, sz, dir){
+  ctx.beginPath();
+  ctx.moveTo(x, y - sz * .78); ctx.lineTo(x + sz * dir, y); ctx.lineTo(x, y + sz * .78);
+  ctx.closePath(); ctx.fill();
+}
+/* "탭은 이 도형에 들어간다" 를 말이 아니라 그림으로. */
+function drawTarget(y){
+  const pulse = RM ? 0.5 : (Math.sin(performance.now() / 260) + 1) * 0.5;
+  const off = 44 + pulse * 4;
+  ctx.save();
+  ctx.globalAlpha = .18;
+  ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(LANE_X0 + 3, y); ctx.lineTo(LANE_X1 - 3, y); ctx.stroke();
+  ctx.globalAlpha = .55 + pulse * .45;
+  ctx.fillStyle = '#FFFFFF';
+  chevron(LANE_CX - off, y, 11, 1);
+  chevron(LANE_CX + off, y, 11, -1);
+  ctx.restore();
+}
+/* 바닥선 아래 여백 — 상시 안내, 규칙을 놓쳤을 때는 그 자리에 힌트 */
+function drawGround(){
+  if (SCREEN !== 'game' || replayCtl) return;
+  ctx.save();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (hint){
+    ctx.globalAlpha = Math.min(1, hint.life * 2.4);
+    ctx.font = '700 12px system-ui, sans-serif';
+    ctx.fillStyle = '#FFC978';
+  } else {
+    ctx.globalAlpha = .34;
+    ctx.font = '600 11.5px system-ui, sans-serif';
+    ctx.fillStyle = '#C8D4EB';
+  }
+  ctx.fillText(hint ? hint.t : '▶  탭은 맨 아래 도형에  ◀', LANE_CX, FLOOR + 22);
+  ctx.restore();
+}
+
 function drawFx(){
   for (const s of squashes){
     const a = s.life;
@@ -828,18 +873,24 @@ function drawTitle(){
   for (let i = 0; i < 4; i++) chip(i, LANE_CX - 75 + i * 50, 320, 19);
   ctx.font = '600 12.5px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(160,175,205,.62)';
-  ctx.fillText('조건이 「빨강」이면 빨강만 누른다.', LANE_CX, 372);
-  ctx.fillText('아닌 색은 그냥 지나가게 둔다.', LANE_CX, 393);
+  ctx.fillText('조건이 「빨강」이면 빨강만 누른다.', LANE_CX, 366);
+  ctx.fillText('아닌 색은 그냥 지나가게 둔다.', LANE_CX, 387);
+  ctx.font = '700 13.5px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255,201,120,.92)';
+  ctx.fillText('▶  탭은 늘 맨 아래 도형에  ◀', LANE_CX, 420);
+  ctx.font = '600 12px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(160,175,205,.55)';
+  ctx.fillText('위엣것은 아래가 사라질 때까지 기다린다.', LANE_CX, 441);
   const bl = 0.55 + 0.45 * Math.sin(performance.now() / 380);
   ctx.globalAlpha = RM ? 1 : bl;
   ctx.font = '800 22px system-ui, sans-serif';
   ctx.fillStyle = '#FFD75E';
-  ctx.fillText('탭해서 시작', LANE_CX, 470);
+  ctx.fillText('탭해서 시작', LANE_CX, 492);
   ctx.globalAlpha = 1;
   if (bestRec.score > 0){
     ctx.font = '600 13px system-ui, sans-serif';
     ctx.fillStyle = 'rgba(190,200,220,.62)';
-    ctx.fillText('최고 ' + fmt(bestRec.score), LANE_CX, 512);
+    ctx.fillText('최고 ' + fmt(bestRec.score), LANE_CX, 530);
   }
   ctx.restore();
 }
@@ -912,9 +963,11 @@ function draw(alpha){
   if (G && SCREEN === 'game'){
     const act = activeShape(G);
     const frozen = G.freeze > 0;
+    if (act) drawTarget(act.y + (frozen ? 0 : act.speed * alpha));
     for (const s of G.shapes){
       const y = s.y + (frozen ? 0 : s.speed * alpha);
-      drawShape(s.ci, y, act && s.id === act.id, act && s.id === act.id ? 1 : 0.38);
+      const on = !!(act && s.id === act.id);
+      drawShape(s.ci, y, on, on ? 1 : 0.44, on ? 1 : 0.78);   // 대기 중이면 작고 어둡게
     }
   }
   drawFx();
@@ -922,6 +975,7 @@ function draw(alpha){
 
   if (G && G.phase === 'switching') drawBanner();
   if (G && G.freeze > 0 && G.frozen) drawFreeze();
+  drawGround();
 
   if (goldFlash > 0){
     ctx.fillStyle = 'rgba(255,215,94,' + (goldFlash * .18) + ')';
