@@ -83,19 +83,23 @@ function prog(y){
   return Math.max(0, Math.min(1, (y - ACTIVE_MIN) / (FLOOR - ACTIVE_MIN)));
 }
 
-/* 채점 방식 — ?score=tier|linear|curve 로 바꾼다.
-   tier   : 칸 단위(10/20/30/40). 느낌이 또렷하지만 칸 경계에 점수 절벽이 있다.
-            사람들이 몰리는 지점(×3 하단 ≈ 306ms)이 하필 그 경계라, 반응 떨림(±40ms)이
-            점수를 50% 흔든다 — 실력이 아니라 운이 섞인다.
-   linear : 1~30 점 연속. 절벽이 없고 1ms 가 전부 점수에 반영된다.
-   curve  : 1~40 점 연속이되 위로 갈수록 가팔라진다((1−p)^1.6).
-            아래쪽 40% 는 거의 평평해서 "이미 늦었으면 쉬어가는" 구간이 남는다. */
+/* 채점: **1~30 점 연속**. 칸 단위가 아니다.
+   칸 경계는 점수 절벽이었고, 사람들이 몰리는 지점(≈306ms)이 하필 그 경계라
+   반응 떨림(±45ms)이 같은 실력을 30점과 20점으로 갈랐다 — 원칙 1 위반이다.
+   연속으로 두면 1ms 가 전부 점수에 반영되고, 한 도형 단위 판별력이 17% 오른다.
+   (README 8.5장에 측정)
+
+   기본 `curve` 는 지수 1.4 로 아주 살짝 휘어 있다. 두 가지 이유가 있다:
+     1) 아래쪽 40% 가 거의 평평해서 **"이미 늦었으면 쉬어가는" 구간**이 남는다.
+        완전한 직선(`linear`)은 끝까지 1ms 를 다투게 해서 피로하다.
+     2) 직선이면 safe/perfect 점수비가 40% 라 완료 기준 4(40% 이하)에 걸린다.
+   ?score=tier|linear 로 되돌려 비교할 수 있다. */
 const SCORING = {
-  tier:   y => 10 * zoneMult(y),
-  linear: y => Math.max(1, Math.round(30 * (1 - prog(y)))),
-  curve:  y => Math.max(1, Math.round(40 * Math.pow(1 - prog(y), 1.6))),
+  curve:  y => Math.max(1, Math.round(30 * Math.pow(1 - prog(y), 1.4))),  // 30 / 22 / 15 / 8
+  linear: y => Math.max(1, Math.round(30 * (1 - prog(y)))),               // 30 / 24 / 18 / 12
+  tier:   y => 10 * zoneMult(y),                                          // 40 / 30 / 20 / 10
 };
-let SCORE_MODE = 'tier';
+let SCORE_MODE = 'curve';
 const WRONG_FREEZE  = 250;        // WRONG 정지(ms)
 const MISS_FREEZE   = 380;        // 마지막 목숨을 MISS 로 잃었을 때만 잠깐 멈춤
 const LIVES = 3;                  // 요청서 그대로. 한 판 길이는 README 4장 참고
@@ -225,7 +229,7 @@ function createSim(seed, out){
     cond: 0, nextCond: 0,
     freeze: 0, dying: false, frozen: null,
     score: 0, lives: LIVES, processed: 0,
-    stats: { hit:0, wrong:0, miss:0, pass:0, z4:0, z3:0, z2:0, z1:0 },
+    stats: { hit:0, wrong:0, miss:0, pass:0, z4:0, z3:0, z2:0, z1:0, bestHit:0 },
     inputs: [], pending: 0,
     over: false, lastFail: null,
   };
@@ -312,6 +316,7 @@ function doTap(sim){
     sim.score += pts;
     sim.stats.hit++;
     sim.stats['z' + m]++;
+    if (pts > sim.stats.bestHit) sim.stats.bestHit = pts;
     if (sim.out.onHit) sim.out.onHit(a, m, pts);
   } else {
     sim.stats.wrong++;
@@ -381,7 +386,7 @@ const Store = (function(){
   };
 })();
 
-const BEST_KEY = 'judge:best' + (SCORE_MODE === 'tier' ? '' : ':' + SCORE_MODE);
+const BEST_KEY = 'judge:best:' + SCORE_MODE;   // 채점 방식이 다르면 비교가 안 된다
 let bestRec = { score:0, seed:0, inputs:[] };
 try {
   const raw = Store.get(BEST_KEY);
@@ -992,7 +997,7 @@ function drawTitle(){
   ctx.fillText('골라!', LANE_CX, 200);
   ctx.font = '600 15px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(200,212,235,.80)';
-  ctx.fillText('조건 색만 탭 · 높이 탭하면 ×4', LANE_CX, 252);
+  ctx.fillText('조건 색만 탭 · 빨리 칠수록 큰 점수', LANE_CX, 252);
   for (let i = 0; i < 4; i++) chip(i, LANE_CX - 75 + i * 50, 320, 19);
   ctx.font = '600 12.5px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(160,175,205,.62)';
@@ -1000,7 +1005,7 @@ function drawTitle(){
   ctx.fillText('기준은 매번 바뀐다 — 다음 기준이 오른쪽에 미리 보인다.', LANE_CX, 387);
   ctx.font = '700 13.5px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(255,201,120,.92)';
-  ctx.fillText('빨리 누를수록 위에서 잡힌다 = 배율이 크다', LANE_CX, 420);
+  ctx.fillText('빨리 누를수록 위에서 잡힌다 = 점수가 크다', LANE_CX, 420);
   ctx.font = '600 12px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(160,175,205,.55)';
   ctx.fillText('도형은 일정한 박자로 온다. 빨리 끊을수록 다음을 볼 틈이 는다.', LANE_CX, 441);
@@ -1042,13 +1047,21 @@ function drawOver(){
   ctx.font = '700 14.5px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(215,225,245,.88)';
   ctx.fillText('맞춤 ' + s.hit + '    오답 ' + s.wrong + '    놓침 ' + s.miss, LANE_CX, 280);
-  ctx.font = '700 13.5px system-ui, sans-serif';
-  [4, 3, 2, 1].forEach((m, i) => {
-    ctx.fillStyle = MULT[m].hex;
-    ctx.globalAlpha = m === 1 ? .72 : .95;
-    ctx.fillText('×' + m + '  ' + s['z' + m], LANE_CX - 76 + i * 51, 312);
-  });
-  ctx.globalAlpha = 1;
+  ctx.font = '700 14.5px system-ui, sans-serif';
+  if (SCORE_MODE === 'tier'){
+    [4, 3, 2, 1].forEach((m, i) => {
+      ctx.fillStyle = MULT[m].hex;
+      ctx.globalAlpha = m === 1 ? .72 : .95;
+      ctx.fillText('×' + m + '  ' + s['z' + m], LANE_CX - 76 + i * 51, 312);
+    });
+    ctx.globalAlpha = 1;
+  } else {
+    const avg = s.hit ? (r.score / s.hit) : 0;
+    ctx.fillStyle = MULT[3].hex;
+    ctx.fillText('한 방 평균 +' + avg.toFixed(1), LANE_CX - 62, 312);
+    ctx.fillStyle = MULT[4].hex;
+    ctx.fillText('최고 +' + s.bestHit, LANE_CX + 68, 312);
+  }
 
   /* 마지막에 죽은 도형 — 붉게 남는다 */
   if (r.lastFail){

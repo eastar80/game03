@@ -149,8 +149,8 @@ function summarize(name, runs){
   console.log('─'.repeat(88));
 
   const ratio = perfect.score > 0 ? results['safe'].score / perfect.score : 0;
-  const avgMult = perfect.hit > 0 ? (perfect.z4 * 4 + perfect.z3 * 3 + perfect.z2 * 2 + perfect.z1) / perfect.hit : 0;
-  console.log('perfect 평균 배율      : ×' + f1(avgMult));
+  const perHit = perfect.hit > 0 ? (perfect.score * SEEDS) / perfect.hit : 0;
+  console.log('perfect 한 방 평균     : +' + f1(perHit));
   console.log('safe / perfect 점수비  : ' + (ratio * 100).toFixed(1) + '%   (완료 기준: 40% 이하)');
 
   const ok = [];
