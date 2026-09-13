@@ -31,6 +31,7 @@ package.json               테스트 실행용(playwright devDependency)만
 | `Store` | 저장 어댑터 `window.storage` → `localStorage` → 메모리 |
 | `LB` | Supabase REST 리더보드 (URL 비면 통째로 꺼짐) |
 | 오디오 | Web Audio 합성. 첫 제스처 후 `audioInit()` |
+| 음악 | `MUSIC` 3곡 + `musicTick()` 선행 예약 스케줄러. **합성만, 파일 없음** |
 | 연출 | 파편·텍스트·흔들림·플래시. **여기서만 `Math.random` 허용** |
 | 앱 | 화면 전환, 입력, 메인 루프, 그리기 |
 | `judgeReplay` | 재현 검증 (렌더 없이 다시 돌린다) |
@@ -82,7 +83,12 @@ window.__judge = {
 ## 컨벤션
 
 - 단일 `index.html`. 빌드 없음. 외부 라이브러리·에셋·폰트 없음.
-- Canvas 2D + Web Audio 합성. 오디오는 첫 사용자 제스처 이후.
+- Canvas 2D + Web Audio 합성. 오디오는 첫 사용자 제스처 이후. **음악도 합성이다** —
+  `MUSIC` 3곡(맥박/물결/톱니)은 마이너 펜타토닉 + Am–F–C–G 순환이라 어디서 끊어도
+  어긋나지 않는다. `musicTick()` 이 `AudioContext.currentTime` 기준으로 0.25초치를
+  미리 예약하므로 rAF 가 흔들려도 박자는 흔들리지 않는다.
+  컨트롤은 바닥선 아래 한 줄(`MBTN` / `drawMusicBar` / `hitMusicBar`) — 레인 밖이라
+  눌러도 게임 탭으로 새지 않는다. 스피커는 효과음까지 포함한 전체 음소거(`muted`).
 - 게임 로직에서 `Math.random` 금지. 연출(파편·흔들림)에만 허용.
 - 난이도는 `DIFFS` 한 표. 다른 곳에 숫자를 흘리지 않는다.
 - UI 텍스트는 한국어. 시스템 폰트.
