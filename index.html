@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#07090f">
-<title>골라!</title>
+<title>306ms</title>
 <style>
   :root{ color-scheme: dark; }
   *{ box-sizing:border-box }
@@ -78,7 +78,7 @@
 <script>
 'use strict';
 /* =========================================================================
-   골라!  —  조건 색만 탭한다.  높이 탭할수록 배율이 크다.
+   306ms  —  조건 색만 탭한다.  높이 탭할수록 배율이 크다.
    단일 파일 / 빌드 없음 / 외부 라이브러리·에셋 없음 / Canvas 2D + Web Audio
    ========================================================================= */
 
@@ -176,7 +176,7 @@ const DIFFS = [
 (function checkPeriod(){
   const fall = d => (FLOOR - SPAWN_Y) / d.speed;
   DIFFS.forEach((d, i) => {
-    if (d.period < fall(d)) console.warn('[골라!] DIFFS[' + i + '] period ' + d.period +
+    if (d.period < fall(d)) console.warn('[306ms] DIFFS[' + i + '] period ' + d.period +
       ' < 낙하 ' + fall(d).toFixed(1) + ' 프레임 — 박자가 끊긴다');
   });
 })();
@@ -962,7 +962,7 @@ document.getElementById('btnReplay').addEventListener('click', () => {
   const orig = lastResult.score;
   const v = judgeReplay(lastResult.seed, lastResult.inputs);
   const same = v.score === orig;
-  console.log('[골라!] replay(seed=' + lastResult.seed + ')  원본 ' + orig +
+  console.log('[306ms] replay(seed=' + lastResult.seed + ')  원본 ' + orig +
               ' / 재현 ' + v.score + '  =>  ' + (same ? 'OK 일치' : 'FAIL 불일치'), v);
   startReplayVisual(lastResult.seed, lastResult.inputs);
   replayVerdict = { ok: same, score: v.score };   // startGame() 이 지운 뒤에 세운다
@@ -1371,10 +1371,14 @@ function drawTitle(){
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.font = '900 68px system-ui, sans-serif';
   ctx.fillStyle = '#FFFFFF';
-  ctx.fillText('골라!', LANE_CX, 200);
+  ctx.fillText('306ms', LANE_CX, 192);
+  /* 이름이 곧 설계 상수다 — 15점 눈금이 사람의 인식 시간 위에 놓여 있다 (README 8장) */
+  ctx.font = '600 12px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255,201,120,.55)';
+  ctx.fillText('사람이 색을 알아보는 데 걸리는 시간', LANE_CX, 234);
   ctx.font = '600 15px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(200,212,235,.80)';
-  ctx.fillText('조건 색만 탭 · 빨리 칠수록 큰 점수', LANE_CX, 252);
+  ctx.fillText('조건 색만 탭 · 빨리 칠수록 큰 점수', LANE_CX, 262);
   for (let i = 0; i < 4; i++) chip(i, LANE_CX - 75 + i * 50, 320, 19);
   ctx.font = '600 12.5px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(160,175,205,.62)';
