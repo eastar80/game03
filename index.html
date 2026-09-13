@@ -509,6 +509,10 @@ let parts = [], texts = [], squashes = [], heartFx = [];
 let shake = 0, hudShake = 0, flash = null, goldFlash = 0, tintCi = -1, tintA = 0;
 let hint = null, hintCount = 0;   // 규칙을 놓쳤을 때만, 한 세션에 3번까지
 let condRoll = 0;                 // 1 → 0. HUD 에서 「다음」이 「지금」자리로 미끄러진다
+/* 오른쪽 여백의 점수 기록. 최신이 맨 위, 과거는 한 칸씩 아래로 밀린다. */
+let scoreLog = [];                // 최신이 앞 [{ pts, m }]
+let logSlide = 0;                 // 1 → 0. 한 칸 미끄러져 내려오는 연출
+const LOG_ROWS = 18, LOG_H = 22, LOG_X = (LANE_X1 + W) / 2;
 function setHint(t, ms){ hint = { t, life: 1, decay: 16.7 / ms }; }
 
 function burst(x, y, hex, n, spread){
@@ -557,6 +561,7 @@ function updateFx(dtms){
   if (flash){ flash.life -= flash.decay * k; if (flash.life <= 0) flash = null; }
   if (hint){ hint.life -= hint.decay * k; if (hint.life <= 0) hint = null; }
   if (condRoll > 0) condRoll = Math.max(0, condRoll - (16.7 / COND_ROLL) * k);
+  if (logSlide > 0) logSlide = Math.max(0, logSlide - (16.7 / 170) * k);
   if (tintA > 0) tintA = Math.max(0, tintA - 0.006 * k);
 }
 
@@ -580,6 +585,9 @@ const liveOut = {
     burst(LANE_CX, s.y, COLORS[s.ci].hex, 10 + m * 3, 1 + m * .22);
     /* 연속 채점이어도 색·크기는 칸에서 가져온다 — 숫자는 정밀하게, 느낌은 또렷하게. */
     popText(LANE_CX, s.y - 10, SCORE_MODE === 'tier' ? '×' + m : '+' + pts, st.hex, st.size);
+    scoreLog.unshift({ pts, m });
+    if (scoreLog.length > LOG_ROWS) scoreLog.length = LOG_ROWS;
+    logSlide = RM ? 0 : 1;
     sndHit(m);
     if (st.kick) doShake(st.kick);
     if (G.score > bestShown){
@@ -621,6 +629,7 @@ function startGame(seed){
   replayCtl = null; replayVerdict = null;
   parts.length = 0; texts.length = 0; squashes.length = 0; heartFx.length = 0;
   shake = 0; hudShake = 0; flash = null; goldFlash = 0; tintA = 0; hint = null; condRoll = 0;
+  scoreLog.length = 0; logSlide = 0;
   uiEl.classList.remove('show');
   msgEl.textContent = '';
 }
@@ -804,8 +813,8 @@ function drawLane(bare){
     ctx.fillStyle = b.c; ctx.fillRect(LANE_X0, b.y0, LANE_X1 - LANE_X0, b.y1 - b.y0);
     ctx.fillStyle = b.lc; ctx.font = '700 15px system-ui, sans-serif';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    /* 왼쪽에만. 오른쪽 여백은 점수 기록(drawLog)이 쓴다. */
     ctx.fillText(b.l, LANE_X0 + 8, b.y0 + 16);
-    ctx.fillText(b.l, LANE_X1 - 30, b.y0 + 16);
   }
   ctx.save();
   ctx.setLineDash([5, 6]); ctx.lineWidth = 1;
@@ -972,6 +981,26 @@ function drawFx(){
   ctx.globalAlpha = 1;
 }
 
+/* 오른쪽 여백: 방금 얻은 점수가 맨 위에 얹히고 과거는 한 칸씩 내려간다.
+   레인(58~302) 밖이라 판정 화면에는 절대 겹치지 않는다. */
+function drawLog(){
+  if (SCREEN !== 'game' || !scoreLog.length) return;
+  ctx.save();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const top = HUD_H + 18;
+  for (let i = scoreLog.length - 1; i >= 0; i--){
+    const y = top + (i + logSlide) * LOG_H;
+    if (y > FLOOR - 6) continue;
+    let a = Math.max(0, 1 - i * 0.085);
+    if (i === 0 && logSlide > 0) a *= 1 - logSlide * 0.65;   // 갓 들어온 것은 나타나면서
+    ctx.globalAlpha = a;
+    ctx.font = (i === 0 ? '800 15px' : '700 13px') + ' system-ui, sans-serif';
+    ctx.fillStyle = MULT[scoreLog[i].m].hex;
+    ctx.fillText('+' + scoreLog[i].pts, LOG_X, y);
+  }
+  ctx.restore();
+}
+
 function drawFreeze(){
   const f = G.frozen; if (!f) return;
   ctx.save();
@@ -1110,6 +1139,7 @@ function draw(alpha){
     }
   }
   drawFx();
+  drawLog();
   if (SCREEN !== 'title') drawHud();
 
   if (G && G.freeze > 0 && G.frozen) drawFreeze();
