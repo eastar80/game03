@@ -285,24 +285,47 @@ create policy "insert" on judge_scores for insert with check (true);
 create policy "update" on judge_scores for update using (true) with check (true);
 ```
 
-그다음 `index.html` 안의 `SB` 상수를 채우면 끝이다(단일 파일 컨벤션이라 이쪽이 기본):
+그다음 `index.html` 안의 `SB` 상수를 채우면 끝이다(단일 파일 컨벤션이라 이쪽이 기본).
+**이 저장소에는 이미 채워져 있다.** 파일을 안 건드리고 싶으면 `index.html` 보다 먼저
+실행되는 곳에서 `window.__judgeLB = { url, key }` 로 덮어써도 된다.
 
-```js
-const SB = Object.assign({ url: 'https://xxxx.supabase.co', key: '<anon key>',
-                           table: 'judge_scores' }, window.__judgeLB || {});
-```
+publishable(`sb_publishable_…`) / anon 키는 **원래 클라이언트에 노출되는 값**이라
+공개 저장소에 들어가도 된다 — 막는 것은 키가 아니라 RLS 다.
+**`sb_secret_…` 로 시작하는 키는 절대 넣으면 안 된다** (RLS 를 통째로 우회한다).
 
-파일을 안 건드리고 싶으면 `index.html` 보다 먼저 실행되는 곳에서
-`window.__judgeLB = { url, key }` 로 덮어써도 된다.
-anon 키는 원래 클라이언트에 노출되는 값이라 공개 저장소에 들어가도 된다 — 대신 RLS 가 전부다.
+### 설정이 틀렸을 때 화면이 원인을 말한다
+
+PostgREST 오류를 그대로 두면 "연결 실패" 한 줄로 뭉개져서 어디를 고칠지 알 수 없다.
+`sbErr()` 이 실제 원인으로 번역한다 — 각 상황을 흉내내어 확인했다:
+
+| 상황 | 화면에 뜨는 말 |
+|---|---|
+| RLS 정책 누락 (`42501` / 403) | RLS 정책이 막았습니다 — judge_scores 의 select/insert/update 정책을 확인하세요. |
+| 키 거부 (401) | API 키가 거부됐습니다 (401) — publishable/anon 키가 맞는지 확인하세요. |
+| 테이블 없음 (`PGRST205` / 404) | 테이블 「judge_scores」 을 찾을 수 없습니다. |
+| 그 밖 | 리더보드 오류 `<status>` — `<message>` |
+
+> **RLS 의 함정:** `select` 정책이 없으면 오류가 아니라 **빈 순위표**가 나온다
+> (PostgREST 가 200 에 `[]` 를 준다). 등록은 되는데 목록이 비어 있으면 그쪽을 의심할 것.
 
 > anon 키로 열어 두는 이상 **누구나 행을 넣고 고칠 수 있다.** 프로토타입 수준의 각오다.
 > 대신 순위표가 `replay` 로 검산하므로 **거짓 점수는 `✕` 로 드러나고 `세계 1위` 에도 안 오른다.**
 
-> **Supabase 경로는 실제 인스턴스에 대고 검증하지 못했다**(이 저장소에 붙은 프로젝트가 없다).
-> 가짜 REST 엔드포인트로 요청 모양은 확인했다 — 컬럼 `id,name,score,seed,inputs,at`,
-> 읽고-나서-쓰기 순서, `Prefer: resolution=merge-duplicates` upsert, 두 번 등록해도 행 1개.
-> 실제 프로젝트에 붙였을 때 처음 확인할 것은 **RLS 정책**이다.
+> **Supabase 경로는 아직 실제 인스턴스에 대고 검증되지 않았다.**
+> 개발 세션의 egress 정책이 `*.supabase.co` 를 막아서(CONNECT 403) 붙어볼 수가 없었다.
+> 확인된 것은 가짜 REST 엔드포인트까지다 — 컬럼 `id,name,score,seed,inputs,at`,
+> 읽고-나서-쓰기 순서, `Prefer: resolution=merge-duplicates` upsert, 두 번 등록해도 행 1개,
+> 그리고 위 오류 번역 5종. **브라우저에서 한 판 등록해 보는 것이 마지막 확인이다.**
+
+터미널에서 먼저 재보려면:
+
+```bash
+curl -i -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
+  "https://<프로젝트>.supabase.co/rest/v1/judge_scores?select=id,name,score&limit=5"
+# 200 + [] 또는 [{...}]  → 읽기 정상
+# 401                    → 키 문제
+# 404 + PGRST205         → 테이블 이름 문제
+```
 
 > **아티팩트 `db` 를 선언하면 그 아티팩트는 조직 내부 전용이 되어 공개 공유가 막힌다.**
 > 공개 링크로 돌리고 싶으면 Supabase 쪽을 쓴다. 코드는 둘 다 지원한다.
