@@ -1,8 +1,8 @@
 {
-  "name": "golra",
+  "name": "game-306ms",
   "version": "1.0.0",
   "private": true,
-  "description": "골라! — 조건 색만 탭하는 원버튼 게임",
+  "description": "306ms — 조건 색만 탭하는 원버튼 게임",
   "type": "module",
   "scripts": {
     "test": "node test/autoplay.mjs",

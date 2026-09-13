@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false   # 배포는 중간에 끊지 않는다
 
 jobs:
   deploy:
@@ -23,6 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+        with:
+          # 저장소 설정에서 Pages 를 따로 켜지 않아도 첫 실행 때 워크플로가 켠다
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
