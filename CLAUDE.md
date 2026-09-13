@@ -29,7 +29,7 @@ package.json               테스트 실행용(playwright devDependency)만
 | `mulberry32` | 게임 로직의 **유일한** 난수원 |
 | 시뮬레이션 | `createSim` / `simStep` / `simTap` / `doTap` / `resolveFloor` / `afterResolve` — 순수. DOM·오디오를 모른다 |
 | `Store` | 저장 어댑터 `window.storage` → `localStorage` → 메모리 |
-| `LB` | Supabase REST 리더보드 (URL 비면 통째로 꺼짐) |
+| `LB` | 리더보드 어댑터: 아티팩트 `db` → Supabase REST → 꺼짐 |
 | 오디오 | Web Audio 합성. 첫 제스처 후 `audioInit()` |
 | 음악 | `MUSIC` 3곡 + `musicTick()` 선행 예약 스케줄러. **합성만, 파일 없음** |
 | 연출 | 파편·텍스트·흔들림·플래시. **여기서만 `Math.random` 허용** |
@@ -96,6 +96,18 @@ window.__judge = {
 - 입력: 터치·마우스·스페이스·엔터 모두 "탭". `touchstart` 는 `preventDefault`.
 - 저장은 어댑터로만.
 - **시스템은 하나만** (원칙 9). 콤보·덱·아이템·스테이지 제안은 코드가 아니라 README 에 적는다.
+
+## 리더보드 기록은 스스로 검산된다
+
+기록에 `seed` 와 입력 로그가 함께 들어가므로 순위표를 여는 쪽에서
+`judgeReplay(seed, inputs)` 로 점수를 확인한다(`verifyRow`). 점수만 조작하면 `✕` 로 드러난다.
+**HUD 의 `세계 1위` 는 검산을 통과한 기록만 쓴다** — 위조된 점수가 목표가 되면 안 된다.
+튜닝(`TUNED`)이 걸린 판은 등록도 검산도 하지 않는다(기본 난이도와 비교 불가).
+남이 넣은 이름은 신뢰할 수 없는 입력이다 — **언제나 `textContent`**, `innerHTML` 금지.
+
+백엔드는 어댑터다: `claude.use('db')`(아티팩트, 설정 불필요) → Supabase REST
+(`window.__judgeLB`) → 꺼짐. **`db` 를 선언한 아티팩트는 조직 내부 전용이 되어
+공개 공유가 막힌다** — 공개로 돌리려면 Supabase 쪽. 문서는 이름당 하나라 무한히 늘지 않는다.
 
 ## 기준은 큐다 — `afterResolve` 를 판정 뒤에 부를 것
 

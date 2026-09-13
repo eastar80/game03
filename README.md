@@ -249,19 +249,39 @@ index.html?speed=12.6&lure=0.5&switch=5&period=55&score=curve
 
 ## 6. 저장 · 리더보드
 
-- 로컬 최고 기록: 어댑터(`window.storage` → `localStorage` → 메모리), 키 `judge:best`,
-  값 `{score, seed, inputs}`.
-- 온라인 리더보드는 Supabase REST `fetch`. **지금은 꺼져 있다** — 이 저장소에 붙은
-  Supabase 프로젝트가 없어 URL/키가 비어 있다. 켜려면:
+- 로컬 최고 기록: 어댑터(`window.storage` → `localStorage` → 메모리),
+  키 `judge:best:<채점방식>` · `judge:music` · `judge:mute` · `judge:name`.
 
-  ```js
-  window.__judgeLB = { url: 'https://xxxx.supabase.co', key: '<anon key>' };
-  ```
+### 리더보드 — 백엔드 어댑터
 
-  테이블 `judge_scores(name text, score int, seed text, created_at timestamptz default now())`,
-  RLS 는 select/insert 전체 허용. URL 이 비면 네트워크 호출을 아예 하지 않고,
-  켠 뒤 실패해도 게임은 그대로 돈다.
-- 1위를 받아오면 HUD 왼쪽에 `세계 1위 23,000` 으로 **플레이 중** 표시한다(원칙 6).
+| 순서 | 백엔드 | 언제 |
+|---|---|---|
+| 1 | **아티팩트 `db`** | `claude.use('db')` 가 붙으면. **설정이 필요 없다** |
+| 2 | **Supabase REST** | `window.__judgeLB = { url, key }` 가 있으면 |
+| 3 | 꺼짐 | 둘 다 없으면. 게임은 그대로 돈다 |
+
+```js
+// GitHub Pages 등 아티팩트 밖에서 쓰려면
+window.__judgeLB = { url: 'https://xxxx.supabase.co', key: '<anon key>' };
+// 테이블 judge_scores(name text, score int, seed text, inputs jsonb, at bigint)
+```
+
+> **아티팩트 `db` 를 선언하면 그 아티팩트는 조직 내부 전용이 되어 공개 공유가 막힌다.**
+> 공개 링크로 돌리고 싶으면 Supabase 쪽을 쓴다. 코드는 둘 다 지원한다.
+
+### 기록은 검산된다 (원칙 1 의 덤)
+
+기록에 **`seed` 와 입력 로그가 함께** 들어간다. 순위표를 여는 쪽에서
+`judgeReplay(seed, inputs)` 를 돌려 점수가 맞는지 직접 확인하고 `✓` / `✕` 로 표시한다.
+
+- 점수만 조작해 넣으면 재생 결과와 어긋나 **`✕`** 로 드러난다(테스트로 확인).
+- HUD 의 `세계 1위` 는 **검산을 통과한 기록만** 쓴다 — 위조된 점수가 목표가 되면 안 된다.
+- `?speed=` 같은 튜닝이 걸린 판은 아예 등록되지 않고, 튜닝된 화면에서는 검산도 하지 않는다
+  (기본 난이도와 비교가 불가능하므로).
+
+문서는 **이름당 하나**(`scores/<이름해시>`)이고 더 높은 점수일 때만 덮어쓴다 —
+기록이 쌓여도 문서 수가 늘지 않는다(`db` 는 아티팩트당 5,000 문서 상한).
+남이 넣은 이름은 신뢰할 수 없는 입력이라 언제나 `textContent` 로만 그린다.
 
 ## 7. 요청서·지침을 어긴 곳과 이유
 

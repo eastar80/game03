@@ -34,6 +34,24 @@
   #ui button:active{ background:#242c48 }
   #seed{ font-size:calc(var(--u) * 11px); color:#68718c; text-align:center; font-variant-numeric:tabular-nums }
   #msg{ font-size:calc(var(--u) * 11px); color:#8fa0c4; text-align:center; min-height:calc(var(--u) * 15px) }
+  #board{
+    position:absolute; left:6%; right:6%; top:11%; max-height:70%;
+    display:none; flex-direction:column; gap:calc(var(--u) * 8px); overflow:auto;
+    background:#0d1220; border:1px solid #2b3350;
+    border-radius:calc(var(--u) * 12px); padding:calc(var(--u) * 14px);
+    box-shadow:0 calc(var(--u) * 18px) calc(var(--u) * 40px) rgba(0,0,0,.55);
+  }
+  #board.show{ display:flex }
+  #bh{ font-size:calc(var(--u) * 15px); font-weight:800; color:#EAEFF9; text-align:center }
+  #blist{ margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:calc(var(--u) * 5px) }
+  #blist li{ display:flex; align-items:center; gap:calc(var(--u) * 8px); background:#141b2c;
+    font-size:calc(var(--u) * 12.5px); color:#cfd6e6;
+    padding:calc(var(--u) * 6px) calc(var(--u) * 7px); border-radius:calc(var(--u) * 7px) }
+  #blist .rk{ width:calc(var(--u) * 18px); color:#68718c; text-align:right; font-variant-numeric:tabular-nums }
+  #blist .nm{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  #blist .sc{ font-weight:800; color:#fff; font-variant-numeric:tabular-nums }
+  #blist .vf{ font-size:calc(var(--u) * 11px); width:calc(var(--u) * 12px) }
+  #bmsg{ font-size:calc(var(--u) * 10.5px); color:#8fa0c4; text-align:center; line-height:1.4 }
 </style>
 </head>
 <body>
@@ -42,11 +60,18 @@
   <div id="ui">
     <div id="seed"></div>
     <div class="row">
-      <button id="btnReplay">시드 · 재현</button>
-      <input id="nm" maxlength="10" placeholder="이름(선택)" autocomplete="off">
+      <input id="nm" maxlength="10" placeholder="이름" autocomplete="off">
       <button id="btnSub">등록</button>
+      <button id="btnBoard">순위표</button>
+      <button id="btnReplay">재현</button>
     </div>
     <div id="msg"></div>
+  </div>
+  <div id="board">
+    <div id="bh">순위표</div>
+    <ol id="blist"></ol>
+    <div id="bmsg"></div>
+    <button id="bclose">닫기</button>
   </div>
 </div></div>
 
@@ -394,36 +419,95 @@ try {
 } catch(e){}
 
 /* =========================================================================
-   온라인 리더보드 (Supabase REST).  URL 이 비어 있으면 통째로 꺼진다.
-   실패해도 게임은 그대로 돈다.
+   리더보드 — 백엔드 어댑터.  아티팩트 db → Supabase REST → 꺼짐
+     · 아티팩트로 띄우면 claude.use('db') 가 붙어 설정 없이 바로 돈다.
+     · GitHub Pages 등 밖에서는 window.__judgeLB 로 Supabase 를 꽂는다.
+     · 둘 다 없으면 통째로 꺼지고, 게임은 그대로 돈다.
+   기록에는 seed + 입력 로그가 함께 들어간다 — 누구든 replay 로 검산할 수 있다(원칙 1).
    ========================================================================= */
-const LB = Object.assign({ url:'', key:'', table:'judge_scores' }, window.__judgeLB || {});
-let worldTop = null;
+const SB = Object.assign({ url:'', key:'', table:'judge_scores' }, window.__judgeLB || {});
+const LB = { kind: 'off', db: null };
+let worldTop = null, boardRows = null, boardMsg = '';
 
-async function lbFetchTop(){
-  if (!LB.url || !LB.key) return;
-  try {
-    const r = await fetch(LB.url + '/rest/v1/' + LB.table + '?select=name,score&order=score.desc&limit=1',
-      { headers:{ apikey:LB.key, Authorization:'Bearer ' + LB.key } });
-    if (!r.ok) return;
-    const j = await r.json();
-    if (Array.isArray(j) && j[0]) worldTop = j[0];
-  } catch(e){}
+/* 이름을 문서 id 로. 경로 문법(영숫자 + _-.~:@+)을 안전하게 지나가게 해싱한다 */
+function nameId(n){
+  let h = 5381;
+  for (let i = 0; i < n.length; i++) h = ((h * 33) ^ n.charCodeAt(i)) >>> 0;
+  return 'n' + h.toString(36);
 }
-async function lbSubmit(name, score, seed){
-  if (!LB.url || !LB.key) return { ok:false, reason:'리더보드가 설정되지 않았습니다(로컬 최고 기록만 저장).' };
+function lbMsg(e){
+  switch (e && e.code){
+    case 'not_granted':
+    case 'capability_disabled':
+    case 'capability_removed': return '이 화면에서는 리더보드를 쓸 수 없습니다.';
+    case 'revoked':            return '리더보드 접근이 해제되었습니다.';
+    case 'quota_exceeded':     return '리더보드가 가득 찼습니다.';
+    case 'resource_exhausted': return '잠시 후 다시 시도해 주세요.';
+    case 'invalid_argument':   return '기록 형식이 올바르지 않습니다.';
+    default:                   return '리더보드에 연결하지 못했습니다.';
+  }
+}
+
+async function lbInit(){
   try {
-    const r = await fetch(LB.url + '/rest/v1/' + LB.table, {
+    if (window.claude && typeof window.claude.use === 'function'){
+      const d = await window.claude.use('db');      // 없으면 null. 늦게 온다
+      if (d){ LB.db = d; LB.kind = 'db'; }
+    }
+  } catch(e){}
+  if (LB.kind === 'off' && SB.url && SB.key) LB.kind = 'supabase';
+  if (LB.kind !== 'off') lbTop();
+  else { boardMsg = '리더보드가 설정되지 않았습니다.'; renderBoard(); }
+}
+
+async function lbTop(){
+  if (LB.kind === 'db'){
+    try {
+      const snap = await LB.db.collection('scores').orderBy('score', 'desc').limit(10).get();
+      boardRows = snap.docs.map(d => d.data()); boardMsg = '';
+    } catch(e){ boardRows = null; boardMsg = lbMsg(e); }
+  } else if (LB.kind === 'supabase'){
+    try {
+      const r = await fetch(SB.url + '/rest/v1/' + SB.table +
+        '?select=name,score,seed,inputs&order=score.desc&limit=10',
+        { headers:{ apikey: SB.key, Authorization: 'Bearer ' + SB.key } });
+      if (!r.ok) throw 0;
+      boardRows = await r.json(); boardMsg = '';
+    } catch(e){ boardRows = null; boardMsg = '리더보드에 연결하지 못했습니다.'; }
+  }
+  /* HUD 의 「세계 1위」는 **검산을 통과한** 기록만 쓴다. 위조된 점수가 목표가 되면 안 된다. */
+  worldTop = boardRows ? (boardRows.find(r => verifyRow(r) !== false) || null) : null;
+  renderBoard();
+}
+
+async function lbSubmit(name, rec){
+  if (TUNED) return { ok:false, reason:'튜닝된 판은 등록할 수 없습니다(기본 난이도와 비교 불가).' };
+  if (LB.kind === 'off') return { ok:false, reason:'리더보드가 설정되지 않았습니다(로컬 최고 기록은 저장됨).' };
+  name = (name || '익명').slice(0, 10);
+  const body = { name, score: rec.score, seed: rec.seed, inputs: rec.inputs, at: Date.now() };
+  if (LB.kind === 'db'){
+    try {
+      const ref = LB.db.doc('scores/' + nameId(name));
+      const cur = await ref.get();                       // 이름당 최고 기록 하나 (문서 수가 안 늘어난다)
+      if (cur.exists && (cur.data().score || 0) >= rec.score)
+        return { ok:false, reason: '「' + name + '」의 기존 ' + fmt(cur.data().score) + '점이 더 높습니다.' };
+      await ref.set(body);
+      lbTop();
+      return { ok:true };
+    } catch(e){ return { ok:false, reason: lbMsg(e) }; }
+  }
+  try {
+    const r = await fetch(SB.url + '/rest/v1/' + SB.table, {
       method:'POST',
-      headers:{ apikey:LB.key, Authorization:'Bearer ' + LB.key, 'Content-Type':'application/json', Prefer:'return=minimal' },
-      body: JSON.stringify({ name: name || '익명', score, seed: String(seed) })
+      headers:{ apikey: SB.key, Authorization: 'Bearer ' + SB.key,
+                'Content-Type':'application/json', Prefer:'return=minimal' },
+      body: JSON.stringify(body)
     });
-    if (!r.ok) return { ok:false, reason:'등록 실패 (' + r.status + ')' };
-    lbFetchTop();
+    if (!r.ok) return { ok:false, reason: '등록 실패 (' + r.status + ')' };
+    lbTop();
     return { ok:true };
   } catch(e){ return { ok:false, reason:'네트워크 오류' }; }
 }
-lbFetchTop();
 
 /* =========================================================================
    오디오 — 첫 제스처 이후 시작. 합성만, 음원 파일 없음.
@@ -520,14 +604,16 @@ function mSaw(freq, t, dur, vol, cut){
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   o.connect(f); f.connect(g); g.connect(musicGain); o.start(t); o.stop(t + dur + 0.03);
 }
+/* 타이트한 킥. 예전 것은 124→44Hz 라 폰 스피커에서 둔탁한 "툭"만 남았다 —
+   시작음을 올리고 감쇠를 절반으로 줄여 초저역 대신 어택이 들리게 한다. */
 function mKick(t, vol){
   if (!musicGain) return;
   const o = AC.createOscillator(), g = AC.createGain();
-  o.type = 'sine'; o.frequency.setValueAtTime(124, t);
-  o.frequency.exponentialRampToValueAtTime(44, t + 0.09);
+  o.type = 'sine'; o.frequency.setValueAtTime(200, t);
+  o.frequency.exponentialRampToValueAtTime(62, t + 0.045);
   g.gain.setValueAtTime(vol, t);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
-  o.connect(g); g.connect(musicGain); o.start(t); o.stop(t + 0.21);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.115);
+  o.connect(g); g.connect(musicGain); o.start(t); o.stop(t + 0.15);
 }
 let hatBuf = null;
 function mHat(t, vol){
@@ -544,15 +630,18 @@ function mHat(t, vol){
   src.connect(f); f.connect(g); g.connect(musicGain); src.start(t);
 }
 
+const HOOK = [0, 3, 6, 11];        // 훅이 놓이는 16분 자리
 const MUSIC = [
-  /* 고정 박자와 같이 뛰는 미니멀 비트 */
-  { name: '맥박', bpm: 104, step(i, t){
-      const r = ROOTS[(i >> 4) % 4];
-      if (i % 4 === 0) mKick(t, 0.42);
-      if (i % 8 === 4) mHat(t, 0.09);
-      if (i % 16 === 0) mV(mHz(r - 12), t, 0.55, 'sine', 0.15);
-      if (i % 16 === 10) mV(mHz(r - 5), t, 0.30, 'sine', 0.10);
-      if (i % 32 === 22) mV(mHz(r + 12 + SCALE[(i >> 3) % 5]), t, 0.24, 'triangle', 0.045);
+  /* 걷는 베이스 + 네 음짜리 훅. 초저역에 몰리지 않게 전부 한 옥타브 위로 올렸다 */
+  { name: '맥박', bpm: 100, step(i, t){
+      const bar = (i >> 4) % 4, r = ROOTS[bar], k = i % 16;
+      if (k === 0 || k === 6 || k === 10) mKick(t, k === 0 ? 0.30 : 0.19);
+      if (k % 4 === 2) mHat(t, 0.055);
+      /* 걷는 베이스: 1박 근음 · 2박 근음 · 3박 5도 · 4박 근음 */
+      if (k % 4 === 0) mV(mHz(r + (k === 8 ? 7 : 0)), t, 0.27, 'triangle', 0.105);
+      /* 네 음짜리 훅. 마디마다 한 음씩 밀려 같은 자리에서 반복되지 않는다 */
+      const hi = HOOK.indexOf(k);
+      if (hi >= 0) mV(mHz(r + 24 + SCALE[(hi + bar) % 5]), t, 0.24, 'triangle', 0.072);
   }},
   /* 타악기 없는 패드. 피로하지 않게 */
   { name: '물결', bpm: 64, step(i, t){
@@ -600,6 +689,40 @@ function musicTick(){
   }
 }
 
+/* 남의 기록은 신뢰할 수 없는 입력이다 — 언제나 textContent 로만 넣는다.
+   대신 seed + 입력 로그가 함께 오므로 replay 로 검산할 수 있다(원칙 1). */
+function verifyRow(r){
+  if (TUNED) return null;                      // 튜닝된 화면에서는 검산이 무의미하다
+  if (!r || !Array.isArray(r.inputs) || typeof r.score !== 'number') return null;
+  try { return judgeReplay(r.seed, r.inputs).score === r.score; } catch(e){ return null; }
+}
+function renderBoard(){
+  const list = document.getElementById('blist'), bmsg = document.getElementById('bmsg');
+  if (!list) return;
+  list.textContent = '';
+  if (!boardRows || !boardRows.length){
+    bmsg.textContent = boardMsg || (LB.kind === 'off'
+      ? '리더보드가 설정되지 않았습니다. README 6장 참고.' : '아직 기록이 없습니다.');
+    return;
+  }
+  let bad = 0;
+  boardRows.forEach((r, i) => {
+    const li = document.createElement('li');
+    const mk = (cls, txt) => { const e = document.createElement('span'); e.className = cls; e.textContent = txt; return e; };
+    li.appendChild(mk('rk', String(i + 1)));
+    li.appendChild(mk('nm', String(r.name || '익명')));
+    li.appendChild(mk('sc', fmt(Number(r.score) || 0)));
+    const v = verifyRow(r);
+    if (v === false) bad++;
+    const vf = mk('vf', v === true ? '✓' : v === false ? '✕' : '·');
+    vf.style.color = v === true ? '#7ee08a' : v === false ? '#ff8b8b' : '#68718c';
+    li.appendChild(vf);
+    list.appendChild(li);
+  });
+  bmsg.textContent = '기록마다 시드와 입력이 함께 저장된다. ✓ 는 재생 검산을 통과했다는 뜻'
+    + (bad ? ' — ✕ ' + bad + '건은 재생과 점수가 다르다.' : '.');
+}
+
 /* =========================================================================
    화면 / 캔버스
    ========================================================================= */
@@ -610,6 +733,7 @@ const uiEl = document.getElementById('ui');
 const seedEl = document.getElementById('seed');
 const msgEl = document.getElementById('msg');
 const nmEl = document.getElementById('nm');
+const boardEl = document.getElementById('board');
 
 const RM = (function(){
   try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(e){ return false; }
@@ -777,6 +901,7 @@ function finishGame(){
   }
   bestShown = Math.max(bestShown, bestRec.score);
   seedEl.textContent = '시드 ' + lastResult.seed + ' · 입력 ' + lastResult.inputs.length + '회';
+  if (!nmEl.value) nmEl.value = Store.get('judge:name') || '';
   uiEl.classList.add('show');
 }
 
@@ -784,6 +909,7 @@ function finishGame(){
    입력
    ========================================================================= */
 function onTap(){
+  if (boardEl.classList.contains('show')) return;   // 순위표가 열려 있으면 게임 탭을 막는다
   audioInit();
   if (SCREEN === 'title'){ startGame(); return; }
   if (SCREEN === 'over'){
@@ -800,14 +926,14 @@ function canvasXY(e){
   return { x: (t.clientX - r.left) / r.width * W, y: (t.clientY - r.top) / r.height * H };
 }
 document.addEventListener('touchstart', e => {
-  if (uiEl.contains(e.target)) return;
+  if (uiEl.contains(e.target) || boardEl.contains(e.target)) return;
   e.preventDefault(); lastTouch = performance.now();
   const p = canvasXY(e);
   if (hitMusicBar(p.x, p.y)) return;
   onTap();
 }, { passive:false });
 document.addEventListener('mousedown', e => {
-  if (uiEl.contains(e.target)) return;
+  if (uiEl.contains(e.target) || boardEl.contains(e.target)) return;
   if (performance.now() - lastTouch < 700) return;
   const p = canvasXY(e);
   if (hitMusicBar(p.x, p.y)) return;
@@ -835,12 +961,20 @@ document.getElementById('btnReplay').addEventListener('click', () => {
 });
 document.getElementById('btnSub').addEventListener('click', async () => {
   if (!lastResult) return;
+  const nm = nmEl.value.trim();
   msgEl.style.color = '#8fa0c4';
   msgEl.textContent = '등록 중…';
-  const r = await lbSubmit(nmEl.value.trim(), lastResult.score, lastResult.seed);
+  const r = await lbSubmit(nm, lastResult);
   msgEl.textContent = r.ok ? '등록되었습니다.' : r.reason;
   msgEl.style.color = r.ok ? '#7ee08a' : '#8fa0c4';
+  if (r.ok && nm) Store.set('judge:name', nm);
 });
+document.getElementById('btnBoard').addEventListener('click', () => {
+  boardEl.classList.add('show');
+  renderBoard();
+  lbTop();                       // 열 때마다 새로 받는다
+});
+document.getElementById('bclose').addEventListener('click', () => boardEl.classList.remove('show'));
 
 /* 시각 재생: 같은 시드로 새 판을 만들고 기록된 틱에 자동으로 탭한다. */
 function startReplayVisual(seed, inputs){
@@ -878,6 +1012,7 @@ function frame(now){
   draw((MANUAL || !G || G.over || G.freeze > 0) ? 0 : Math.min(1, acc / FRAME));
 }
 requestAnimationFrame(frame);
+lbInit();      // 아티팩트 db 는 늦게 붙는다. 붙으면 HUD 의 「세계 1위」가 채워진다
 
 /* =========================================================================
    그리기
