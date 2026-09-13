@@ -496,12 +496,22 @@ async function lbSubmit(name, rec){
       return { ok:true };
     } catch(e){ return { ok:false, reason: lbMsg(e) }; }
   }
+  /* Supabase 도 db 와 같게: 이름당 한 행, 더 높은 점수일 때만 덮어쓴다.
+     id 가 기본키라 merge-duplicates 로 upsert 된다. 행이 무한히 쌓이지 않는다. */
   try {
+    const id = nameId(name);
+    const h = { apikey: SB.key, Authorization: 'Bearer ' + SB.key };
+    const cur = await fetch(SB.url + '/rest/v1/' + SB.table + '?id=eq.' + id + '&select=score', { headers: h });
+    if (cur.ok){
+      const rows = await cur.json();
+      if (rows[0] && (rows[0].score || 0) >= rec.score)
+        return { ok:false, reason: '「' + name + '」의 기존 ' + fmt(rows[0].score) + '점이 더 높습니다.' };
+    }
     const r = await fetch(SB.url + '/rest/v1/' + SB.table, {
       method:'POST',
-      headers:{ apikey: SB.key, Authorization: 'Bearer ' + SB.key,
-                'Content-Type':'application/json', Prefer:'return=minimal' },
-      body: JSON.stringify(body)
+      headers: Object.assign({}, h, { 'Content-Type':'application/json',
+                                      Prefer:'return=minimal,resolution=merge-duplicates' }),
+      body: JSON.stringify(Object.assign({ id }, body))
     });
     if (!r.ok) return { ok:false, reason: '등록 실패 (' + r.status + ')' };
     lbTop();

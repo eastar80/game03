@@ -260,11 +260,46 @@ index.html?speed=12.6&lure=0.5&switch=5&period=55&score=curve
 | 2 | **Supabase REST** | `window.__judgeLB = { url, key }` 가 있으면 |
 | 3 | 꺼짐 | 둘 다 없으면. 게임은 그대로 돈다 |
 
-```js
-// GitHub Pages 등 아티팩트 밖에서 쓰려면
-window.__judgeLB = { url: 'https://xxxx.supabase.co', key: '<anon key>' };
-// 테이블 judge_scores(name text, score int, seed text, inputs jsonb, at bigint)
+**아티팩트 `db` 는 만들 것이 없다.** 스키마가 없고 첫 쓰기에 저장소가 생긴다.
+
+**Supabase 는 테이블을 직접 만들어야 한다.** 이 코드는 REST 로 읽고 쓸 뿐 테이블을 만들지 못한다.
+SQL 편집기에 그대로 붙여넣으면 된다:
+
+```sql
+create table if not exists judge_scores (
+  id     text primary key,          -- 이름 해시. 이름당 한 행이라 무한히 안 쌓인다
+  name   text    not null,
+  score  integer not null,
+  seed   bigint  not null,
+  inputs jsonb   not null,          -- 입력 로그. 이게 있어야 순위표가 검산된다
+  at     bigint  not null
+);
+create index if not exists judge_scores_score_idx on judge_scores (score desc);
+
+alter table judge_scores enable row level security;
+create policy "read"   on judge_scores for select using (true);
+create policy "insert" on judge_scores for insert with check (true);
+create policy "update" on judge_scores for update using (true) with check (true);
 ```
+
+그다음 `index.html` 안의 `SB` 상수를 채우면 끝이다(단일 파일 컨벤션이라 이쪽이 기본):
+
+```js
+const SB = Object.assign({ url: 'https://xxxx.supabase.co', key: '<anon key>',
+                           table: 'judge_scores' }, window.__judgeLB || {});
+```
+
+파일을 안 건드리고 싶으면 `index.html` 보다 먼저 실행되는 곳에서
+`window.__judgeLB = { url, key }` 로 덮어써도 된다.
+anon 키는 원래 클라이언트에 노출되는 값이라 공개 저장소에 들어가도 된다 — 대신 RLS 가 전부다.
+
+> anon 키로 열어 두는 이상 **누구나 행을 넣고 고칠 수 있다.** 프로토타입 수준의 각오다.
+> 대신 순위표가 `replay` 로 검산하므로 **거짓 점수는 `✕` 로 드러나고 `세계 1위` 에도 안 오른다.**
+
+> **Supabase 경로는 실제 인스턴스에 대고 검증하지 못했다**(이 저장소에 붙은 프로젝트가 없다).
+> 가짜 REST 엔드포인트로 요청 모양은 확인했다 — 컬럼 `id,name,score,seed,inputs,at`,
+> 읽고-나서-쓰기 순서, `Prefer: resolution=merge-duplicates` upsert, 두 번 등록해도 행 1개.
+> 실제 프로젝트에 붙였을 때 처음 확인할 것은 **RLS 정책**이다.
 
 > **아티팩트 `db` 를 선언하면 그 아티팩트는 조직 내부 전용이 되어 공개 공유가 막힌다.**
 > 공개 링크로 돌리고 싶으면 Supabase 쪽을 쓴다. 코드는 둘 다 지원한다.
