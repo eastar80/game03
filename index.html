@@ -77,6 +77,25 @@ const Z4 = 162, Z3 = 272, Z2 = 382;   // ×4 / ×3 / ×2 / 그 외 ×1
    (요청서 2.4 의 1.2초 공백 + 배너는 "도형이 여럿 남은 채 전환하면 애매해진다"를
     막으려던 장치였고, 도형이 하나뿐인 지금은 막을 것이 없다. README 7장) */
 const COND_ROLL = 190;            // HUD 에서 「다음」이 「지금」자리로 미끄러지는 시간(ms)
+
+/* 판정 구간 안에서의 진행도 0(맨 위) ~ 1(바닥). 곧 "얼마나 망설였나"의 비율이다. */
+function prog(y){
+  return Math.max(0, Math.min(1, (y - ACTIVE_MIN) / (FLOOR - ACTIVE_MIN)));
+}
+
+/* 채점 방식 — ?score=tier|linear|curve 로 바꾼다.
+   tier   : 칸 단위(10/20/30/40). 느낌이 또렷하지만 칸 경계에 점수 절벽이 있다.
+            사람들이 몰리는 지점(×3 하단 ≈ 306ms)이 하필 그 경계라, 반응 떨림(±40ms)이
+            점수를 50% 흔든다 — 실력이 아니라 운이 섞인다.
+   linear : 1~30 점 연속. 절벽이 없고 1ms 가 전부 점수에 반영된다.
+   curve  : 1~40 점 연속이되 위로 갈수록 가팔라진다((1−p)^1.6).
+            아래쪽 40% 는 거의 평평해서 "이미 늦었으면 쉬어가는" 구간이 남는다. */
+const SCORING = {
+  tier:   y => 10 * zoneMult(y),
+  linear: y => Math.max(1, Math.round(30 * (1 - prog(y)))),
+  curve:  y => Math.max(1, Math.round(40 * Math.pow(1 - prog(y), 1.6))),
+};
+let SCORE_MODE = 'tier';
 const WRONG_FREEZE  = 250;        // WRONG 정지(ms)
 const MISS_FREEZE   = 380;        // 마지막 목숨을 MISS 로 잃었을 때만 잠깐 멈춤
 const LIVES = 3;                  // 요청서 그대로. 한 판 길이는 README 4장 참고
@@ -141,7 +160,7 @@ let TUNED = null;
   let q; try { q = new URLSearchParams(location.search); } catch(e){ return; }
   const num = k => q.has(k) && q.get(k) !== '' ? Number(q.get(k)) : null;
   const sp = num('speed'), lu = num('lure'), sw = num('switch'), bt = num('period');
-  if (sp === null && lu === null && sw === null && bt === null) return;
+  if (sp === null && lu === null && sw === null && bt === null && !q.get('score')) return;
   const parts = [];
   for (const d of DIFFS){
     if (sp !== null && isFinite(sp)) d.speed = sp;
@@ -149,6 +168,8 @@ let TUNED = null;
     if (sw !== null && isFinite(sw)) d.switchEvery = Math.max(2, Math.round(sw));
     if (bt !== null && isFinite(bt)) d.period = Math.max(1, Math.round(bt));
   }
+  const sc = q.get('score');
+  if (sc && SCORING[sc]){ SCORE_MODE = sc; parts.push('채점 ' + sc); }
   if (sp !== null) parts.push('speed ' + DIFFS[0].speed);
   if (lu !== null) parts.push('lure ' + DIFFS[0].lure);
   if (sw !== null) parts.push('전환 ' + DIFFS[0].switchEvery);
@@ -287,10 +308,11 @@ function doTap(sim){
   sim.processed++;
 
   if (a.ci === sim.cond){
-    sim.score += 10 * m;
+    const pts = SCORING[SCORE_MODE](a.y);
+    sim.score += pts;
     sim.stats.hit++;
     sim.stats['z' + m]++;
-    if (sim.out.onHit) sim.out.onHit(a, m);
+    if (sim.out.onHit) sim.out.onHit(a, m, pts);
   } else {
     sim.stats.wrong++;
     sim.lives--;
@@ -359,7 +381,7 @@ const Store = (function(){
   };
 })();
 
-const BEST_KEY = 'judge:best';
+const BEST_KEY = 'judge:best' + (SCORE_MODE === 'tier' ? '' : ':' + SCORE_MODE);
 let bestRec = { score:0, seed:0, inputs:[] };
 try {
   const raw = Store.get(BEST_KEY);
@@ -547,11 +569,12 @@ let replayVerdict = null;      // { ok, score } — 재현 검증 결과
 let lastResult = null;
 
 const liveOut = {
-  onHit(s, m){
+  onHit(s, m, pts){
     const st = MULT[m];
-    texts.length = 0;              /* 배율 표시는 언제나 하나만. 겹치면 못 읽는다 */
+    texts.length = 0;              /* 점수 표시는 언제나 하나만. 겹치면 못 읽는다 */
     burst(LANE_CX, s.y, COLORS[s.ci].hex, 10 + m * 3, 1 + m * .22);
-    popText(LANE_CX, s.y - 10, '×' + m, st.hex, st.size);
+    /* 연속 채점이어도 색·크기는 칸에서 가져온다 — 숫자는 정밀하게, 느낌은 또렷하게. */
+    popText(LANE_CX, s.y - 10, SCORE_MODE === 'tier' ? '×' + m : '+' + pts, st.hex, st.size);
     sndHit(m);
     if (st.kick) doShake(st.kick);
     if (G.score > bestShown){
@@ -768,7 +791,10 @@ function drawLane(bare){
     { y0: Z4,    y1: Z3, m: 3 },
     { y0: Z3,    y1: Z2, m: 2 },
     { y0: Z2,  y1: FLOOR, m: 1 },
-  ].map(b => ({ ...b, c: MULT[b.m].band, l: '×' + b.m, lc: MULT[b.m].label }));
+  ].map(b => ({ ...b, c: MULT[b.m].band, lc: MULT[b.m].label,
+      /* 칸 채점이면 배율, 연속 채점이면 그 띠에서 받을 수 있는 최고 점수 */
+      l: SCORE_MODE === 'tier' ? '×' + b.m
+                               : String(SCORING[SCORE_MODE](Math.max(b.y0, ACTIVE_MIN))) }));
   for (const b of bands){
     ctx.fillStyle = b.c; ctx.fillRect(LANE_X0, b.y0, LANE_X1 - LANE_X0, b.y1 - b.y0);
     ctx.fillStyle = b.lc; ctx.font = '700 15px system-ui, sans-serif';
@@ -1154,6 +1180,7 @@ window.__judge = {
   },
   replay(seed, inputs){ return judgeReplay(seed, inputs); },
   lastResult(){ return lastResult; },
+  scoreMode(m){ if (m && SCORING[m]) SCORE_MODE = m; return SCORE_MODE; },
   manual(on){ MANUAL = !!on; },
 };
 </script>
